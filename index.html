@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>ホームレス・サバイバル 〜地下帝国のドン〜 (簡単ローカル対戦版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
@@ -11,8 +11,13 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  
+  <style>
+    /* スマホでのタップハイライトを無効化 */
+    * { -webkit-tap-highlight-color: transparent; }
+  </style>
 </head>
-<body class="bg-slate-900 overflow-hidden text-white">
+<body class="bg-slate-900 overflow-hidden text-white touch-manipulation">
   <div id="root"></div>
 
   <script type="text/babel">
@@ -535,9 +540,8 @@
       const canvasRef = useRef(null);
       const animRef = useRef({ active: false, progress: 0, data: null });
       
-      // PeerJS用Ref
       const peerRef = useRef(null);
-      const connectionsRef = useRef([]); // 複数クライアントへの接続を管理
+      const connectionsRef = useRef([]);
 
       const stateRef = useRef(gameState);
       const phaseRef = useRef(phase);
@@ -679,7 +683,7 @@
 
       const checkTurnResolve = (currentGData, currentState) => {
         const hostPlayerNum = currentGData.players[myUid];
-        if (!currentGData.turnReady[hostPlayerNum]) return; // ホスト自身が確定していない場合は待機
+        if (!currentGData.turnReady[hostPlayerNum]) return; 
         
         const humanPlayers = Object.values(currentGData.players); 
         const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
@@ -722,9 +726,9 @@
             if (gameModeRef.current === 'TUTORIAL') {
               const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStageRef.current);
               if (!finalState.alivePlayers.includes(1)) {
-                 setPhase('GAME_OVER'); // 敗北
+                 setPhase('GAME_OVER'); 
               } else if (stageDef && stageDef.checkWin(finalState)) {
-                 setPhase('TUTORIAL_CLEAR'); // クリア
+                 setPhase('TUTORIAL_CLEAR'); 
               } else {
                  setPhase('INPUT');
               }
@@ -815,7 +819,23 @@
       const handleCanvasClick = (e) => {
         if (phase !== 'INPUT' || !gameState.alivePlayers.includes(myPlayerNum)) return;
         const rect = canvasRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+        
+        // スマホ(Touch)とPC(Mouse)の座標計算の共通化
+        let clientX = e.clientX;
+        let clientY = e.clientY;
+        if (e.type === 'touchstart' || e.type === 'touchend') {
+          if (e.changedTouches && e.changedTouches.length > 0) {
+            clientX = e.changedTouches[0].clientX;
+            clientY = e.changedTouches[0].clientY;
+          }
+        }
+        
+        // レスポンシブに縮小されている場合のためのスケール計算
+        const scaleX = MAP_W / rect.width;
+        const scaleY = MAP_H / rect.height;
+        const x = (clientX - rect.left) * scaleX;
+        const y = (clientY - rect.top) * scaleY;
+        
         const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
         const clickedNode = gameState.nodes.find(n => getDistance(n, {x, y}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
 
@@ -864,7 +884,10 @@
       const handleCanvasMouseMove = (e) => {
         if (phase !== 'INPUT' || !gameState) return;
         const rect = canvasRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+        const scaleX = MAP_W / rect.width;
+        const scaleY = MAP_H / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
         const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
         const hovered = gameState.nodes.find(n => getDistance(n, {x, y}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
         setHoveredNode(hovered ? hovered.id : null);
@@ -1194,8 +1217,12 @@
         if (topPos < 10) topPos = node.y + 40; 
         if (leftPos - menuWidth / 2 < 10) leftPos = menuWidth / 2 + 10; else if (leftPos + menuWidth / 2 > MAP_W - 10) leftPos = MAP_W - menuWidth / 2 - 10;
 
+        // レスポンシブ対応: キャンバス内部座標を%に変換して配置
+        const leftPct = (leftPos / MAP_W) * 100;
+        const topPct = (topPos / MAP_H) * 100;
+
         return (
-          <div className="absolute transform -translate-x-1/2 bg-slate-800/95 backdrop-blur border border-slate-500 rounded-lg p-2 flex gap-2 shadow-2xl z-20" style={{ left: leftPos, top: topPos }}>
+          <div className="absolute transform -translate-x-1/2 bg-slate-800/95 backdrop-blur border border-slate-500 rounded-lg p-2 flex gap-2 shadow-2xl z-20 w-64 md:w-auto" style={{ left: `${leftPct}%`, top: `${topPct}%` }}>
             <button onClick={() => {
                 if (selectedChip?.id === 'STEALTH') {
                   if (!playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === node.id)) addCommand({ type: 'use_chip', chip: 'STEALTH', playerId: myPlayerNum, chipIdx: selectedChip.idx, targetId: node.id });
@@ -1203,31 +1230,31 @@
                 } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
               }}
               disabled={!isMoveAllowed || availableEnergy <= 0}
-              className={`flex-col items-center justify-center w-16 h-16 rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!safeActions.includes('move') ? 'hidden' : 'flex'}`}
+              className={`flex-1 md:flex-none flex flex-col items-center justify-center md:w-16 h-14 md:h-16 rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!safeActions.includes('move') ? 'hidden' : 'flex'}`}
             >
-              <span className="text-xl">➡️</span>
-              <span className="text-[10px] mt-1 text-center leading-tight">輸送<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
+              <span className="text-lg md:text-xl">➡️</span>
+              <span className="text-[9px] md:text-[10px] mt-1 text-center leading-tight">輸送<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : ''}</span>
             </button>
             <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
               disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
-              className={`flex-col items-center justify-center w-16 h-16 rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
+              className={`flex-1 md:flex-none flex flex-col items-center justify-center md:w-16 h-14 md:h-16 rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
             >
-              <span className="text-xl">📡</span>
-              {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">採掘再開<br/>(通常モード)</span> : <span className="text-[10px] mt-1 text-center leading-tight">遠隔切替<br/>(採掘停止)</span>}
+              <span className="text-lg md:text-xl">📡</span>
+              {node.mode === 'long_range' ? <span className="text-[9px] md:text-[10px] mt-1 text-center leading-tight">通常</span> : <span className="text-[9px] md:text-[10px] mt-1 text-center leading-tight">遠隔</span>}
             </button>
             <button onClick={() => { if (node.energy >= 30 && node.level < 3) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
               disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3 || !safeActions.includes('upgrade')} 
-              className={`flex-col items-center justify-center w-16 h-16 rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('upgrade') ? 'hidden' : 'flex'}`}
+              className={`flex-1 md:flex-none flex flex-col items-center justify-center md:w-16 h-14 md:h-16 rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('upgrade') ? 'hidden' : 'flex'}`}
             >
-              <span className="text-xl">🔨</span>
-              <span className="text-[10px] mt-1 text-center leading-tight">設備強化<br/>(-30缶)</span>
+              <span className="text-lg md:text-xl">🔨</span>
+              <span className="text-[9px] md:text-[10px] mt-1 text-center leading-tight">強化<br/>(-30)</span>
             </button>
             <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
               disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
-              className={`flex-col items-center justify-center w-16 h-16 rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('cut') ? 'hidden' : 'flex'}`}
+              className={`flex-1 md:flex-none flex flex-col items-center justify-center md:w-16 h-14 md:h-16 rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('cut') ? 'hidden' : 'flex'}`}
             >
-              <span className="text-xl">✂️</span>
-              <span className="text-[10px] mt-1 text-center leading-tight">カット<br/>(-10缶)</span>
+              <span className="text-lg md:text-xl">✂️</span>
+              <span className="text-[9px] md:text-[10px] mt-1 text-center leading-tight">カット<br/>(-10)</span>
             </button>
           </div>
         );
@@ -1236,23 +1263,23 @@
       const renderTargetPrompt = () => {
         if (selectedChip?.id === 'EMP' || selectedChip?.id === 'SABOTAGE') {
           return (
-            <div className="absolute top-28 left-1/2 transform -translate-x-1/2 bg-indigo-500/20 text-indigo-300 px-6 py-2 rounded-full border border-indigo-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
-              {CHIP_TYPES[selectedChip.id].name}: 対象の敵ショバを選択してください
+            <div className="absolute top-16 md:top-28 left-1/2 transform -translate-x-1/2 bg-indigo-500/20 text-indigo-300 px-4 md:px-6 py-2 rounded-full border border-indigo-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30 text-xs md:text-base w-[90%] md:w-auto text-center justify-center">
+              {CHIP_TYPES[selectedChip.id].name}: 対象の敵ショバを選択
             </div>
           );
         }
         if (selectedChip?.id === 'MINE_BOOST' || selectedChip?.id === 'ATK_BOOST') {
           return (
-            <div className="absolute top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
-              {CHIP_TYPES[selectedChip.id].name}: 対象の自派閥ショバを選択してください
+            <div className="absolute top-16 md:top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-4 md:px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30 text-xs md:text-base w-[90%] md:w-auto text-center justify-center">
+              {CHIP_TYPES[selectedChip.id].name}: 対象の自派閥ショバを選択
             </div>
           );
         }
         if (uiState.mode !== 'SELECTING_TARGET' || !gameState) return null;
         const isLong = gameState.nodes.find(n => n.id === uiState.nodeId)?.mode === 'long_range';
         return (
-          <div className="absolute top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
-            🎯 {uiState.actionType === 'move' ? `対象ショバ（${isLong ? '2マス先まで・一方通行無視可' : '隣接方向のみ'}）を選択してください` : '切断する対象ショバを選択してください'}
+          <div className="absolute top-16 md:top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-4 md:px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30 text-xs md:text-base w-[90%] md:w-auto text-center justify-center">
+            🎯 {uiState.actionType === 'move' ? `対象ショバ（${isLong ? '遠隔' : '隣接'}）を選択` : '切断する対象ショバを選択'}
           </div>
         );
       };
@@ -1260,13 +1287,13 @@
       const renderSlider = () => {
         if (uiState.mode !== 'INPUT_AMOUNT') return null;
         return (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-800 border border-slate-600 p-6 rounded-xl shadow-2xl z-30 w-80">
-            <h3 className="text-white text-lg mb-4 flex items-center gap-2">🪙 資源輸送量</h3>
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-800 border border-slate-600 p-4 md:p-6 rounded-xl shadow-2xl z-30 w-[90%] md:w-80">
+            <h3 className="text-white text-base md:text-lg mb-4 flex items-center gap-2">🪙 資源輸送量</h3>
             <input type="range" min="1" max={uiState.maxAmount} value={amountSlider} onChange={(e) => setAmountSlider(parseInt(e.target.value))} className="w-full accent-sky-500 mb-4" />
             <div className="flex justify-between text-slate-300 text-sm mb-6"><span>1</span><span className="text-2xl font-bold text-sky-400">{amountSlider}</span><span>{uiState.maxAmount}</span></div>
             <div className="flex gap-3">
-              <button onClick={() => setUiState({ mode: 'IDLE' })} className="flex-1 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white">キャンセル</button>
-              <button onClick={() => addCommand({ type: 'move', nodeId: uiState.nodeId, targetId: uiState.targetId, amount: amountSlider, playerId: myPlayerNum })} className="flex-1 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold">決定</button>
+              <button onClick={() => setUiState({ mode: 'IDLE' })} className="flex-1 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm md:text-base">キャンセル</button>
+              <button onClick={() => addCommand({ type: 'move', nodeId: uiState.nodeId, targetId: uiState.targetId, amount: amountSlider, playerId: myPlayerNum })} className="flex-1 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm md:text-base">決定</button>
             </div>
           </div>
         );
@@ -1275,31 +1302,31 @@
       if (phase === 'TUTORIAL_SLIDES') {
         const slide = TUTORIAL_SLIDES[tutorialPage];
         return (
-          <div className="w-full h-screen bg-slate-900 flex items-center justify-center font-sans text-white p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
-            <div className="w-full max-w-4xl bg-slate-800 border border-sky-500/50 rounded-2xl shadow-[0_0_30px_rgba(14,165,233,0.3)] overflow-hidden flex flex-col">
-              <div className="bg-slate-900 px-6 py-4 flex justify-between items-center border-b border-slate-700">
-                <h2 className="text-2xl font-bold text-sky-400 flex items-center gap-2"><span>📖</span> 遊び方・ルール</h2>
-                <button onClick={() => { setPhase('SETUP'); setTutorialPage(0); }} className="text-slate-400 hover:text-white text-2xl transition-colors">✖</button>
+          <div className="w-full min-h-screen bg-slate-900 flex items-center justify-center font-sans text-white p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+            <div className="w-full max-w-4xl bg-slate-800 border border-sky-500/50 rounded-2xl shadow-[0_0_30px_rgba(14,165,233,0.3)] overflow-hidden flex flex-col h-[90vh] md:h-auto">
+              <div className="bg-slate-900 px-4 md:px-6 py-3 md:py-4 flex justify-between items-center border-b border-slate-700">
+                <h2 className="text-lg md:text-2xl font-bold text-sky-400 flex items-center gap-2"><span>📖</span> 遊び方・ルール</h2>
+                <button onClick={() => { setPhase('SETUP'); setTutorialPage(0); }} className="text-slate-400 hover:text-white text-xl md:text-2xl transition-colors">✖</button>
               </div>
               
-              <div className="p-10 flex-1 flex flex-col items-center justify-center min-h-[400px] text-center">
-                <div className="text-7xl mb-8">{slide.icon}</div>
-                <h3 className="text-4xl font-bold text-yellow-400 mb-8">{slide.title}</h3>
-                <p className="text-slate-300 text-xl leading-loose whitespace-pre-wrap text-left max-w-3xl">{slide.content}</p>
+              <div className="p-6 md:p-10 flex-1 flex flex-col items-center justify-center text-center overflow-y-auto">
+                <div className="text-5xl md:text-7xl mb-6">{slide.icon}</div>
+                <h3 className="text-2xl md:text-4xl font-bold text-yellow-400 mb-6">{slide.title}</h3>
+                <p className="text-slate-300 text-base md:text-xl leading-loose whitespace-pre-wrap text-left max-w-3xl">{slide.content}</p>
               </div>
 
-              <div className="bg-slate-900 px-8 py-5 flex justify-between items-center border-t border-slate-700">
+              <div className="bg-slate-900 px-4 md:px-8 py-4 md:py-5 flex justify-between items-center border-t border-slate-700">
                 <button 
                   onClick={() => setTutorialPage(p => Math.max(0, p - 1))}
                   disabled={tutorialPage === 0}
-                  className="px-8 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-white font-bold transition-colors text-lg"
+                  className="px-4 md:px-8 py-2 md:py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-white font-bold transition-colors text-sm md:text-lg"
                 >
                   ◀ 前へ
                 </button>
                 
-                <div className="flex gap-3">
+                <div className="flex gap-1 md:gap-3">
                   {TUTORIAL_SLIDES.map((_, i) => (
-                    <div key={i} className={`w-4 h-4 rounded-full transition-colors ${i === tutorialPage ? 'bg-sky-400' : 'bg-slate-600'}`}></div>
+                    <div key={i} className={`w-2 h-2 md:w-4 md:h-4 rounded-full transition-colors ${i === tutorialPage ? 'bg-sky-400' : 'bg-slate-600'}`}></div>
                   ))}
                 </div>
 
@@ -1312,7 +1339,7 @@
                       setTutorialPage(p => p + 1);
                     }
                   }}
-                  className={`px-8 py-3 rounded-lg text-white font-bold transition-colors text-lg ${tutorialPage === TUTORIAL_SLIDES.length - 1 ? 'bg-green-600 hover:bg-green-500' : 'bg-sky-600 hover:bg-sky-500'}`}
+                  className={`px-4 md:px-8 py-2 md:py-3 rounded-lg text-white font-bold transition-colors text-sm md:text-lg ${tutorialPage === TUTORIAL_SLIDES.length - 1 ? 'bg-green-600 hover:bg-green-500' : 'bg-sky-600 hover:bg-sky-500'}`}
                 >
                   {tutorialPage === TUTORIAL_SLIDES.length - 1 ? '閉じる' : '次へ ▶'}
                 </button>
@@ -1324,107 +1351,107 @@
 
       if (phase === 'SETUP') {
         return (
-          <div className="w-full h-screen flex flex-col items-center justify-center font-sans relative" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+          <div className="w-full min-h-screen flex flex-col items-center justify-center font-sans relative p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
             
-            <button onClick={() => setPhase('TUTORIAL_SLIDES')} className="absolute top-6 right-6 bg-slate-800/80 hover:bg-slate-700 text-sky-300 px-6 py-3 rounded-xl border border-sky-500/50 transition-colors flex items-center gap-2 shadow-lg backdrop-blur font-bold z-50">
-              <span className="text-2xl">📖</span> ルール＆遊び方
+            <button onClick={() => setPhase('TUTORIAL_SLIDES')} className="absolute top-4 right-4 md:top-6 md:right-6 bg-slate-800/80 hover:bg-slate-700 text-sky-300 px-4 py-2 md:px-6 md:py-3 rounded-xl border border-sky-500/50 transition-colors flex items-center gap-2 shadow-lg backdrop-blur font-bold z-50 text-sm md:text-base">
+              <span className="text-xl md:text-2xl">📖</span> 遊び方
             </button>
 
-            <div className="mb-8 flex flex-col items-center justify-center gap-4 text-sky-400">
-              <div className="flex gap-4">
-                 <span className="text-6xl animate-bounce">🗑️</span>
-                 <h1 className="text-6xl font-black tracking-widest drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] text-yellow-500">HOMELESS WARS</h1>
+            <div className="mb-8 flex flex-col items-center justify-center gap-2 md:gap-4 text-sky-400 mt-12 md:mt-0">
+              <div className="flex gap-2 md:gap-4 items-center">
+                 <span className="text-4xl md:text-6xl animate-bounce">🗑️</span>
+                 <h1 className="text-3xl md:text-6xl font-black tracking-widest drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] text-yellow-500 text-center leading-tight">HOMELESS<br className="md:hidden"/> WARS</h1>
               </div>
-              <p className="text-slate-300 tracking-widest text-xl mt-2 font-bold">〜地下帝国のドン〜</p>
+              <p className="text-slate-300 tracking-widest text-sm md:text-xl mt-2 font-bold">〜地下帝国のドン〜</p>
             </div>
             
             {!gameMode ? (
-              <div className="flex gap-6 mt-4">
-                <button onClick={() => startPlayableTutorial(1)} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
-                  <span className="text-5xl mb-3">🎓</span>
-                  <h3 className="text-xl text-green-400 font-bold">チュートリアル</h3>
-                  <p className="text-slate-400 mt-2 text-xs text-center">基本を学びながら<br/>5つのステージをクリア</p>
+              <div className="flex flex-col md:flex-row gap-4 md:gap-6 mt-4 w-full max-w-3xl px-4">
+                <button onClick={() => startPlayableTutorial(1)} className="flex-1 bg-slate-800/80 p-4 md:p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors">
+                  <span className="text-4xl md:text-5xl mb-2 md:mb-3">🎓</span>
+                  <h3 className="text-lg md:text-xl text-green-400 font-bold">チュートリアル</h3>
+                  <p className="text-slate-400 mt-1 md:mt-2 text-[10px] md:text-xs text-center">基本を学びながら<br/>5つのステージをクリア</p>
                 </button>
-                <button onClick={() => setGameMode('SOLO')} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
-                  <span className="text-5xl mb-3">👤</span>
-                  <h3 className="text-xl text-white font-bold">ソロプレイ</h3>
-                  <p className="text-slate-400 mt-2 text-xs text-center">AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
+                <button onClick={() => setGameMode('SOLO')} className="flex-1 bg-slate-800/80 p-4 md:p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors">
+                  <span className="text-4xl md:text-5xl mb-2 md:mb-3">👤</span>
+                  <h3 className="text-lg md:text-xl text-white font-bold">ソロプレイ</h3>
+                  <p className="text-slate-400 mt-1 md:mt-2 text-[10px] md:text-xs text-center">AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
                 </button>
-                <button onClick={() => setGameMode('MULTI')} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
-                  <span className="text-5xl mb-3">🌐</span>
-                  <h3 className="text-xl text-sky-400 font-bold">簡単ローカル通信</h3>
-                  <p className="text-slate-400 mt-2 text-xs text-center">ルームIDを入力するだけで<br/>別々のPCですぐ対戦</p>
+                <button onClick={() => setGameMode('MULTI')} className="flex-1 bg-slate-800/80 p-4 md:p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors">
+                  <span className="text-4xl md:text-5xl mb-2 md:mb-3">🌐</span>
+                  <h3 className="text-lg md:text-xl text-sky-400 font-bold">ローカル通信対戦</h3>
+                  <p className="text-slate-400 mt-1 md:mt-2 text-[10px] md:text-xs text-center">ルームIDを入力するだけで<br/>別々のスマホやPCで対戦</p>
                 </button>
               </div>
             ) : gameMode === 'SOLO' ? (
-              <div className="bg-slate-800/80 p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center mt-4">
-                <h3 className="text-2xl text-white font-bold mb-6">参加派閥数を選択</h3>
-                <div className="flex gap-4 mb-6">
+              <div className="bg-slate-800/80 p-6 md:p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center mt-4 w-[90%] md:w-auto">
+                <h3 className="text-xl md:text-2xl text-white font-bold mb-4 md:mb-6">参加派閥数を選択</h3>
+                <div className="flex flex-col md:flex-row gap-3 md:gap-4 mb-4 md:mb-6 w-full">
                   {[2, 3, 4].map(num => (
-                    <button key={num} onClick={() => startSoloGame(num)} className="px-8 py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors text-xl">{num} 派閥</button>
+                    <button key={num} onClick={() => startSoloGame(num)} className="px-6 py-3 md:px-8 md:py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors text-base md:text-xl w-full">{num} 派閥</button>
                   ))}
                 </div>
-                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-4">◀ モード選択へ戻る</button>
+                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-2 md:mt-4 text-sm md:text-base">◀ モード選択へ戻る</button>
               </div>
-            ) : (
-              <div className="flex flex-col items-center mt-4">
-                <div className="flex gap-8">
-                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center w-80">
-                    <h3 className="text-xl text-yellow-400 font-bold mb-4">⛺ 部屋を作る (ホスト)</h3>
-                    <p className="text-slate-400 text-sm text-center mb-6">参加人数を選んで<br/>ルームIDを発行します。</p>
-                    <div className="flex gap-2">
+            ) : signalingStep === 0 ? (
+              <div className="flex flex-col items-center mt-4 w-full px-4">
+                <div className="flex flex-col md:flex-row gap-6 md:gap-8 w-full max-w-2xl justify-center">
+                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center flex-1">
+                    <h3 className="text-lg md:text-xl text-yellow-400 font-bold mb-4">⛺ 部屋を作る (ホスト)</h3>
+                    <p className="text-slate-400 text-xs md:text-sm text-center mb-6">参加人数を選んで<br/>ルームIDを発行します。</p>
+                    <div className="flex flex-wrap justify-center gap-2 w-full">
                       {[2, 3, 4].map(num => (
-                        <button key={num} onClick={() => startHosting(num)} className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded transition-colors">{num} 派閥</button>
+                        <button key={num} onClick={() => startHosting(num)} className="flex-1 px-2 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded transition-colors text-sm">{num} 派閥</button>
                       ))}
                     </div>
                   </div>
-                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center w-80">
-                    <h3 className="text-xl text-sky-400 font-bold mb-4">🍶 部屋に参加 (ゲスト)</h3>
-                    <p className="text-slate-400 text-sm text-center mb-6">ホストから受け取った<br/>4桁のIDを入力します。</p>
-                    <div className="flex gap-3 w-full px-4">
-                      <input type="text" placeholder="ルームID" value={joinInput} onChange={(e) => setJoinInput(e.target.value)} className="flex-1 px-3 py-2 rounded bg-slate-900 text-white border border-slate-600 uppercase font-mono text-center tracking-widest text-lg" maxLength={4} />
-                      <button onClick={() => joinRoom(joinInput)} disabled={!joinInput} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold rounded transition-colors">参加</button>
+                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center flex-1">
+                    <h3 className="text-lg md:text-xl text-sky-400 font-bold mb-4">🍶 部屋に参加 (ゲスト)</h3>
+                    <p className="text-slate-400 text-xs md:text-sm text-center mb-6">ホストから受け取った<br/>4桁のIDを入力します。</p>
+                    <div className="flex gap-2 w-full">
+                      <input type="text" placeholder="ID" value={joinInput} onChange={(e) => setJoinInput(e.target.value)} className="flex-1 px-2 py-2 rounded bg-slate-900 text-white border border-slate-600 uppercase font-mono text-center tracking-widest text-base w-20" maxLength={4} />
+                      <button onClick={() => joinRoom(joinInput)} disabled={!joinInput} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold rounded transition-colors text-sm w-20">参加</button>
                     </div>
-                    {errorMsg && <p className="text-red-400 text-sm mt-3 font-bold">{errorMsg}</p>}
+                    {errorMsg && <p className="text-red-400 text-xs mt-3 font-bold">{errorMsg}</p>}
                   </div>
                 </div>
-                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-8">◀ モード選択へ戻る</button>
+                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-6 md:mt-8 text-sm md:text-base">◀ モード選択へ戻る</button>
               </div>
-            )}
+            ) : null}
           </div>
         );
       }
 
       if (phase === 'WAITING_ROOM') {
         return (
-          <div className="w-full h-screen flex flex-col items-center justify-center font-sans text-white" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
-            <h2 className="text-4xl font-black text-green-400 mb-6 drop-shadow-lg flex items-center gap-3">✅ 通信接続完了！</h2>
-            <p className="text-xl mb-10 text-slate-300">P2Pネットワークによる直接通信が確立されました。</p>
+          <div className="w-full h-screen flex flex-col items-center justify-center font-sans text-white p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+            <h2 className="text-2xl md:text-4xl font-black text-green-400 mb-4 md:mb-6 drop-shadow-lg flex items-center gap-2 md:gap-3">✅ 通信接続完了！</h2>
+            <p className="text-sm md:text-xl mb-6 md:mb-10 text-slate-300 text-center">P2Pネットワークによる直接通信が確立されました。</p>
             
-            <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur w-96 mb-10">
-              <h3 className="text-lg text-slate-300 mb-4 font-bold border-b border-slate-600 pb-2 flex justify-between">
+            <div className="bg-slate-800/80 p-4 md:p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur w-full max-w-md mb-6 md:mb-10">
+              <h3 className="text-base md:text-lg text-slate-300 mb-3 md:mb-4 font-bold border-b border-slate-600 pb-2 flex justify-between items-center">
                 <span>参加メンバー ({gameData?.playerUids?.length} / {gameData?.playerCount})</span>
-                <span className="font-mono text-sky-400">ID: {roomId}</span>
+                <span className="font-mono text-sky-400 bg-sky-900/30 px-2 py-1 rounded">ID: {roomId}</span>
               </h3>
-              <ul className="space-y-3">
+              <ul className="space-y-2 md:space-y-3">
                 {gameData?.playerUids?.map((uid, i) => (
-                  <li key={uid} className="bg-slate-900/50 px-4 py-3 rounded-lg flex justify-between items-center border border-slate-700">
-                    <div className="flex items-center gap-3">
-                      <div className="w-4 h-4 rounded-full" style={{backgroundColor: COLORS.players[gameData.players[uid]]}}></div>
-                      <span className="font-bold text-lg">派閥 {gameData.players[uid]} {uid === myUid ? '(あなた)' : ''}</span>
+                  <li key={uid} className="bg-slate-900/50 px-3 py-2 md:px-4 md:py-3 rounded-lg flex justify-between items-center border border-slate-700">
+                    <div className="flex items-center gap-2 md:gap-3">
+                      <div className="w-3 h-3 md:w-4 md:h-4 rounded-full" style={{backgroundColor: COLORS.players[gameData.players[uid]]}}></div>
+                      <span className="font-bold text-sm md:text-lg">派閥 {gameData.players[uid]} {uid === myUid ? '(あなた)' : ''}</span>
                     </div>
-                    {gameData.hostUid === uid && <span className="text-yellow-400 text-xs font-black bg-yellow-900/50 px-2 py-1 rounded">HOST</span>}
+                    {gameData.hostUid === uid && <span className="text-yellow-400 text-[10px] md:text-xs font-black bg-yellow-900/50 px-2 py-1 rounded">HOST</span>}
                   </li>
                 ))}
               </ul>
             </div>
 
             {gameMode === 'HOST' ? (
-              <button onClick={startGame} className="px-12 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-black text-2xl rounded-xl shadow-2xl transition-all hover:-translate-y-1">
-                ゲーム開始 (空き枠はAIが担当)
+              <button onClick={startGame} className="px-8 py-4 md:px-12 md:py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-black text-lg md:text-2xl rounded-xl shadow-2xl transition-all hover:-translate-y-1 w-full max-w-md">
+                ゲーム開始 (空き枠はAI)
               </button>
             ) : (
-              <div className="flex items-center gap-3 text-slate-400 text-lg animate-pulse">
+              <div className="flex items-center gap-2 md:gap-3 text-slate-400 text-sm md:text-lg animate-pulse text-center">
                 ⏳ ホストが開始するのを待っています...
               </div>
             )}
@@ -1435,23 +1462,23 @@
       const currentDayIndex = gameState ? (gameState.turn - 1) % 7 : 0;
 
       return (
-        <div className="w-full h-screen flex flex-col items-center justify-center font-sans select-none text-white" style={{ background: '#0f172a' }}>
+        <div className="w-full h-screen flex flex-col items-center justify-center font-sans select-none text-white overflow-hidden" style={{ background: '#0f172a' }}>
           
-          <div className="absolute top-0 w-full max-w-5xl p-4 flex justify-between items-center z-10 pointer-events-none">
-            <div className="flex flex-col gap-2 pointer-events-auto">
-              <div className="flex gap-3">
+          <div className="absolute top-0 w-full max-w-[900px] p-2 md:p-4 flex justify-between items-start z-10 pointer-events-none">
+            <div className="flex flex-col gap-1 md:gap-2 pointer-events-auto">
+              <div className="flex gap-1 md:gap-3">
                 {Array.from({length: gameState.playerCount}).map((_, i) => {
                   const p = i + 1; const isAlive = gameState.alivePlayers?.includes(p) ?? false;
                   return (
-                    <div key={p} className={`px-4 py-2 rounded-lg flex items-center gap-2 border transition-all ${isAlive ? 'opacity-100' : 'opacity-30 grayscale'}`} style={{ borderColor: COLORS.players[p], backgroundColor: `${COLORS.players[p]}33` }}>
-                      <span style={{fontSize: '18px'}}>{p === myPlayerNum ? '🛡️' : '👥'}</span>
-                      <span className="font-bold text-sm">{p === myPlayerNum ? '自派閥' : `派閥 ${p}`}</span>
+                    <div key={p} className={`px-2 py-1 md:px-4 md:py-2 rounded-lg flex items-center gap-1 md:gap-2 border transition-all ${isAlive ? 'opacity-100' : 'opacity-30 grayscale'}`} style={{ borderColor: COLORS.players[p], backgroundColor: `${COLORS.players[p]}33` }}>
+                      <span className="text-xs md:text-base">{p === myPlayerNum ? '🛡️' : '👥'}</span>
+                      <span className="font-bold text-[10px] md:text-sm hidden sm:inline">{p === myPlayerNum ? '自派閥' : `派閥 ${p}`}</span>
                     </div>
                   );
                 })}
               </div>
               {(phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') && gameState.alivePlayers?.includes(myPlayerNum) && gameState.chips[myPlayerNum]?.length > 0 && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-1 md:gap-2 mt-1 max-w-[200px] md:max-w-none">
                   {gameState.chips[myPlayerNum].map((chipId, idx) => {
                     const isUsed = playerCommands.some(c => c.type === 'use_chip' && c.chipIdx === idx);
                     const usedCount = playerCommands.filter(c => c.type === 'use_chip').length;
@@ -1462,16 +1489,10 @@
 
                     return (
                       <div key={idx} className="relative group">
-                        <button onClick={() => !isDisabled && handleChipSelect(chipId, idx)} disabled={isDisabled && !isSelected} className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-all ${isUsed ? 'bg-slate-700 text-slate-500 border-slate-600' : isSelected ? 'bg-indigo-600 text-white border-indigo-400 animate-pulse' : isDisabled ? 'bg-slate-800 text-slate-600 border-slate-700 opacity-50' : 'bg-slate-800 text-indigo-300 border-indigo-500 hover:bg-indigo-900'}`}>
-                          {imgSrc ? <img src={imgSrc} alt={info.name} className="w-4 h-4 object-contain" /> : <span>{info.icon}</span>}
-                          {info.name}
+                        <button onClick={() => !isDisabled && handleChipSelect(chipId, idx)} disabled={isDisabled && !isSelected} className={`flex items-center gap-1 px-1 py-0.5 md:px-2 md:py-1 rounded text-[10px] md:text-xs border transition-all ${isUsed ? 'bg-slate-700 text-slate-500 border-slate-600' : isSelected ? 'bg-indigo-600 text-white border-indigo-400 animate-pulse' : isDisabled ? 'bg-slate-800 text-slate-600 border-slate-700 opacity-50' : 'bg-slate-800 text-indigo-300 border-indigo-500 hover:bg-indigo-900'}`}>
+                          {imgSrc ? <img src={imgSrc} alt={info.name} className="w-3 h-3 md:w-4 md:h-4 object-contain" /> : <span>{info.icon}</span>}
+                          <span className="hidden md:inline">{info.name}</span>
                         </button>
-                        <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 hidden group-hover:block bg-slate-900/95 text-slate-200 text-xs px-3 py-2 rounded-lg border border-indigo-500/50 whitespace-nowrap z-50 shadow-[0_0_10px_rgba(99,102,241,0.2)] pointer-events-none">
-                          <div className="font-bold text-indigo-300 mb-1 flex items-center gap-1">
-                            {imgSrc ? <img src={imgSrc} alt={info.name} className="w-4 h-4 object-contain" /> : <span>{info.icon}</span>} {info.name}
-                          </div>
-                          <div className="text-slate-300">{info.desc}</div>
-                        </div>
                       </div>
                     )
                   })}
@@ -1479,44 +1500,41 @@
               )}
             </div>
             
-            <div className="flex flex-col items-end gap-2">
-              {gameMode === 'MULTI' && <div className="text-green-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-green-600/50 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>ROOM: {roomId}</div>}
-              <div className="flex items-center gap-4 bg-slate-800 border border-slate-600 px-5 py-2 rounded-full shadow-lg">
-                <div className="flex items-center gap-2 text-slate-300">
-                  <span className="text-sky-400">📅</span> <span className="font-bold text-lg">{gameState.turn}日目 ({DAYS[currentDayIndex]})</span>
+            <div className="flex flex-col items-end gap-1 md:gap-2">
+              {gameMode === 'MULTI' && <div className="text-green-400 font-mono text-[10px] md:text-sm bg-slate-800/80 px-2 py-0.5 md:px-3 md:py-1 rounded border border-green-600/50 flex items-center gap-1 md:gap-2"><span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500 animate-pulse"></span><span className="hidden md:inline">ROOM: </span>{roomId}</div>}
+              <div className="flex flex-col md:flex-row items-end md:items-center gap-1 md:gap-4 bg-slate-800/90 border border-slate-600 px-3 py-1 md:px-5 md:py-2 rounded-lg md:rounded-full shadow-lg">
+                <div className="flex items-center gap-1 md:gap-2 text-slate-300 text-xs md:text-base">
+                  <span className="text-sky-400">📅</span> <span className="font-bold">{gameState.turn}日目 <span className="hidden md:inline">({DAYS[currentDayIndex]})</span></span>
                 </div>
-                <div className="flex items-center gap-2 text-slate-300 border-l border-slate-600 pl-4">
-                  {renderWeatherIcon(gameState.weather, 'w-6 h-6', loadedImages)} <span className="font-bold">{getWeatherName(gameState.weather)}</span>
+                <div className="flex items-center gap-1 md:gap-2 text-slate-300 md:border-l border-slate-600 md:pl-4 text-xs md:text-base">
+                  {renderWeatherIcon(gameState.weather, 'w-4 h-4 md:w-6 md:h-6', loadedImages)} <span className="font-bold hidden md:inline">{getWeatherName(gameState.weather)}</span>
                 </div>
-                <div className="flex items-center gap-2 text-slate-500 border-l border-slate-600 pl-4 text-xs">
-                  明日: {renderWeatherIcon(gameState.forecast, 'w-4 h-4', loadedImages)}
-                </div>
-                <div className="flex items-center gap-2 text-lime-400 border-l border-slate-600 pl-4 text-sm font-bold">
-                  🗑️ 回収日: {DAYS[gameState.trashDays[0]]}・{DAYS[gameState.trashDays[1]]}
+                <div className="flex items-center gap-1 md:gap-2 text-lime-400 md:border-l border-slate-600 md:pl-4 text-[10px] md:text-sm font-bold">
+                  🗑️ <span className="hidden md:inline">回収日: </span>{DAYS[gameState.trashDays[0]]}・{DAYS[gameState.trashDays[1]]}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="relative border-y border-slate-700 shadow-2xl rounded-xl overflow-hidden mt-8" style={{ width: MAP_W, height: MAP_H, backgroundImage: gameState ? BACKGROUNDS[gameState.weather] : BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+          <div className="relative border-y border-slate-700 shadow-2xl md:rounded-xl overflow-hidden mt-16 md:mt-8 w-full max-w-[900px] flex-shrink-0 touch-none" style={{ aspectRatio: '3/2', backgroundImage: gameState ? BACKGROUNDS[gameState.weather] : BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center' }}>
             
             {gameMode === 'TUTORIAL' && phase === 'INPUT' && (
-              <div className="absolute top-24 left-1/2 transform -translate-x-1/2 z-20 pointer-events-none w-full max-w-3xl">
-                <div className="bg-slate-800/95 border border-sky-500 text-sky-100 p-4 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.4)] pointer-events-auto text-center">
-                  <h3 className="text-lg font-bold text-yellow-400 mb-2">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.title}</h3>
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.message}</p>
+              <div className="absolute top-10 md:top-24 left-1/2 transform -translate-x-1/2 z-20 pointer-events-none w-[90%] md:w-full max-w-3xl">
+                <div className="bg-slate-800/95 border border-sky-500 text-sky-100 p-3 md:p-4 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.4)] pointer-events-auto text-center">
+                  <h3 className="text-sm md:text-lg font-bold text-yellow-400 mb-1 md:mb-2">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.title}</h3>
+                  <p className="text-xs md:text-sm whitespace-pre-wrap leading-relaxed">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.message}</p>
                 </div>
               </div>
             )}
 
-            <canvas ref={canvasRef} width={MAP_W} height={MAP_H} onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} className={`absolute top-0 left-0 ${phase==='INPUT' ? 'cursor-crosshair' : ''}`} />
+            <canvas ref={canvasRef} width={MAP_W} height={MAP_H} onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} className={`absolute top-0 left-0 w-full h-full ${phase==='INPUT' ? 'cursor-crosshair' : ''}`} />
             
             {renderMenu()}
             {renderTargetPrompt()}
             {renderSlider()}
             
             {phase === 'ANIMATING' && (
-               <div className="absolute top-8 left-1/2 transform -translate-x-1/2 text-white text-xl font-black tracking-widest bg-slate-900/80 border border-yellow-500/50 px-8 py-2 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.3)] z-10">
+               <div className="absolute top-4 md:top-8 left-1/2 transform -translate-x-1/2 text-white text-xs md:text-xl font-black tracking-widest bg-slate-900/80 border border-yellow-500/50 px-4 py-1 md:px-8 md:py-2 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.3)] z-10 whitespace-nowrap">
                  {animRef.current.progress < 0.25 ? 'PHASE 1: 準備 (カット・設備強化)' : 
                   animRef.current.progress < 0.6 ? 'PHASE 2: 輸送 & 襲撃' : 
                   animRef.current.progress < 0.85 ? 'PHASE 3: 解決 (乱戦・ショバ強奪)' : 'PHASE 4: 資源回収・天候効果'}
@@ -1525,14 +1543,14 @@
 
             {phase === 'WAITING_FOR_OTHERS' && (
               <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center z-40 pointer-events-auto">
-                <span className="text-6xl animate-spin text-sky-400 mb-6 inline-block">⏳</span>
-                <h2 className="text-3xl font-black text-white tracking-widest drop-shadow-lg mb-8">他の派閥の行動を待機中...</h2>
-                <div className="flex gap-4">
+                <span className="text-4xl md:text-6xl animate-spin text-sky-400 mb-4 md:mb-6 inline-block">⏳</span>
+                <h2 className="text-lg md:text-3xl font-black text-white tracking-widest drop-shadow-lg mb-6 md:mb-8">他の派閥の行動を待機中...</h2>
+                <div className="flex flex-wrap justify-center gap-2 md:gap-4 px-4">
                    {Object.values(gameData?.players || {}).filter(p => gameState.alivePlayers?.includes(p)).map(p => {
                      const isReady = gameData?.turnReady?.[p];
                      return (
-                       <div key={p} className={`px-6 py-3 rounded-lg border flex flex-col items-center gap-2 shadow-lg transition-colors ${isReady ? 'bg-sky-600/80 border-sky-400 text-white' : 'bg-slate-800/80 border-slate-600 text-slate-400'}`}>
-                         <span className="font-bold text-lg">派閥 {p}</span><span className="text-sm">{isReady ? '準備完了' : '考慮中...'}</span>
+                       <div key={p} className={`px-4 py-2 md:px-6 md:py-3 rounded-lg border flex flex-col items-center gap-1 md:gap-2 shadow-lg transition-colors ${isReady ? 'bg-sky-600/80 border-sky-400 text-white' : 'bg-slate-800/80 border-slate-600 text-slate-400'}`}>
+                         <span className="font-bold text-sm md:text-lg">派閥 {p}</span><span className="text-[10px] md:text-sm">{isReady ? '準備完了' : '考慮中...'}</span>
                        </div>
                      );
                    })}
@@ -1541,16 +1559,16 @@
             )}
 
             {phase === 'TUTORIAL_CLEAR' && (
-              <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-                <h1 className="text-7xl font-black mb-6 text-green-400 drop-shadow-lg">STAGE CLEAR!</h1>
+              <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 text-center">
+                <h1 className="text-4xl md:text-7xl font-black mb-4 md:mb-6 text-green-400 drop-shadow-lg">STAGE CLEAR!</h1>
                 {tutorialStage < PLAYABLE_TUTORIALS.length ? (
-                  <button onClick={() => startPlayableTutorial(tutorialStage + 1)} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">
+                  <button onClick={() => startPlayableTutorial(tutorialStage + 1)} className="px-6 py-3 md:px-10 md:py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-base md:text-xl rounded-xl mt-4 md:mt-6 transition-all shadow-xl">
                     次のステージへ ▶
                   </button>
                 ) : (
                   <div className="flex flex-col items-center">
-                    <p className="text-yellow-400 text-2xl font-bold mb-6">全てのチュートリアルをクリアしました！</p>
-                    <button onClick={() => { setPhase('SETUP'); setGameMode(null); }} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl transition-all shadow-xl">
+                    <p className="text-yellow-400 text-lg md:text-2xl font-bold mb-4 md:mb-6">全てのチュートリアルをクリアしました！</p>
+                    <button onClick={() => { setPhase('SETUP'); setGameMode(null); }} className="px-6 py-3 md:px-10 md:py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-base md:text-xl rounded-xl transition-all shadow-xl">
                       タイトルへ戻る
                     </button>
                   </div>
@@ -1559,35 +1577,35 @@
             )}
 
             {phase === 'GAME_OVER' && (
-              <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-                <h1 className="text-7xl font-black mb-6 drop-shadow-lg" style={{ color: gameState.winner ? COLORS.players[gameState.winner] : '#cbd5e1' }}>
+              <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 text-center">
+                <h1 className="text-5xl md:text-7xl font-black mb-4 md:mb-6 drop-shadow-lg" style={{ color: gameState.winner ? COLORS.players[gameState.winner] : '#cbd5e1' }}>
                   {gameState.winner === myPlayerNum ? 'VICTORY' : gameState.winner ? `派閥 ${gameState.winner} の勝利` : 'DRAW'}
                 </h1>
-                {gameState.winner !== myPlayerNum && gameState.winner !== null && <p className="text-red-400 text-2xl font-bold mb-4 tracking-widest">地下帝国 陥落</p>}
+                {gameState.winner !== myPlayerNum && gameState.winner !== null && <p className="text-red-400 text-xl md:text-2xl font-bold mb-4 tracking-widest">地下帝国 陥落</p>}
                 
                 {gameMode === 'TUTORIAL' ? (
-                   <button onClick={() => startPlayableTutorial(tutorialStage)} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">リトライ</button>
+                   <button onClick={() => startPlayableTutorial(tutorialStage)} className="px-6 py-3 md:px-10 md:py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-base md:text-xl rounded-xl mt-4 md:mt-6 transition-all shadow-xl">リトライ</button>
                 ) : (
-                   <button onClick={() => window.location.reload()} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">タイトルへ戻る</button>
+                   <button onClick={() => window.location.reload()} className="px-6 py-3 md:px-10 md:py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-base md:text-xl rounded-xl mt-4 md:mt-6 transition-all shadow-xl">タイトルへ戻る</button>
                 )}
               </div>
             )}
           </div>
 
-          <div className="w-full max-w-5xl flex gap-6 px-4 mt-6">
-            <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-4 h-32 overflow-y-auto relative">
-              <h3 className="text-slate-400 text-sm font-bold mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">🪙 行動予定 (1ショバにつき1行動)</div>
-                <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers?.includes(myPlayerNum)} className="flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 px-3 py-1 rounded text-xs transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed">
-                  ✨ 参謀AIに相談
+          <div className="w-full max-w-[900px] flex flex-col md:flex-row gap-2 md:gap-6 px-2 md:px-4 mt-2 md:mt-4 flex-1 min-h-0 pb-2">
+            <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-2 md:p-4 overflow-y-auto relative flex flex-col">
+              <h3 className="text-slate-400 text-xs md:text-sm font-bold mb-2 flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-1 md:gap-2">🪙 行動予定 <span className="hidden md:inline">(1ショバにつき1行動)</span></div>
+                <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers?.includes(myPlayerNum)} className="flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 px-2 py-1 md:px-3 rounded text-[10px] md:text-xs transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed">
+                  ✨ <span className="hidden md:inline">参謀AIに</span>相談
                 </button>
               </h3>
               {!gameState?.alivePlayers?.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
-                 <div className="text-red-400 text-sm">あなたの派閥は全滅しました。観戦モードです。</div>
+                 <div className="text-red-400 text-xs md:text-sm">あなたの派閥は全滅しました。観戦モードです。</div>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1 md:gap-2 overflow-y-auto content-start">
                   {playerCommands.map((cmd, idx) => (
-                    <div key={idx} className={`border rounded px-3 py-1.5 flex items-center gap-3 text-sm shadow ${cmd.type === 'use_chip' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-200' : 'bg-slate-700 border-slate-600 text-white'}`}>
+                    <div key={idx} className={`border rounded px-2 py-1 md:px-3 md:py-1.5 flex items-center gap-1 md:gap-3 text-[10px] md:text-sm shadow ${cmd.type === 'use_chip' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-200' : 'bg-slate-700 border-slate-600 text-white'}`}>
                       {cmd.type === 'move' && (() => {
                          const isStealth = playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === cmd.nodeId);
                          return <><span className="text-sky-400">➡️</span> {cmd.nodeId} → {cmd.targetId} ({cmd.amount}) {isStealth && '(隠密)'}</>;
@@ -1600,19 +1618,19 @@
                         const imgSrc = loadedImages[info.imgKey]?.src;
                         return (
                           <>
-                            {imgSrc ? <img src={imgSrc} className="w-4 h-4 object-contain"/> : <span className="text-indigo-400">{info.icon}</span>}
-                            {info.name} {cmd.targetId && `-> ${cmd.targetId}`}
+                            {imgSrc ? <img src={imgSrc} className="w-3 h-3 md:w-4 md:h-4 object-contain"/> : <span className="text-indigo-400">{info.icon}</span>}
+                            <span className="hidden md:inline">{info.name}</span> {cmd.targetId && `-> ${cmd.targetId}`}
                           </>
                         );
                       })()}
-                      {phase === 'INPUT' && <button onClick={() => removeCommand(cmd)} className="text-slate-400 hover:text-white ml-2">❌</button>}
+                      {phase === 'INPUT' && <button onClick={() => removeCommand(cmd)} className="text-slate-400 hover:text-white ml-1 md:ml-2">❌</button>}
                     </div>
                   ))}
                 </div>
               )}
             </div>
-            <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className="w-64 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-black text-xl rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg">
-              <span className="text-2xl">▶️</span> {gameState?.alivePlayers?.includes(myPlayerNum) ? '行動確定' : '待機中'}
+            <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className="w-full md:w-64 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-black text-lg md:text-xl rounded-xl transition-all flex items-center justify-center gap-2 md:gap-3 shadow-lg py-3 md:py-0 flex-shrink-0 h-12 md:h-auto">
+              <span className="text-xl md:text-2xl">▶️</span> {gameState?.alivePlayers?.includes(myPlayerNum) ? '行動確定' : '待機中'}
             </button>
           </div>
         </div>
