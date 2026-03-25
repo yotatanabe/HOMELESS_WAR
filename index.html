@@ -14,9 +14,11 @@
   
   <style>
     * { -webkit-tap-highlight-color: transparent; }
+    /* リサイザーをドラッグ中にテキスト選択されるのを防ぐ */
+    body.resizing { user-select: none; }
   </style>
 </head>
-<body class="bg-slate-900 overflow-hidden text-white touch-manipulation">
+<body class="bg-slate-950 overflow-hidden text-white touch-manipulation">
   <div id="root"></div>
 
   <script type="text/babel">
@@ -79,7 +81,7 @@
 
     const PLAYABLE_TUTORIALS = [
       {
-        id: 1, title: "STAGE 1: 路上デビュー", message: "まずは隣の中立拠点（公園のベンチ）を占領してみよう。\n自分の拠点（駅の隅っこ）をクリックして【輸送】を選び、隣の拠点をクリックだ。\n送る量を決めたら右下の【行動確定】を押せ！", allowedActions: ['move'],
+        id: 1, title: "STAGE 1: 路上デビュー", message: "まずは隣の中立拠点（公園のベンチ）を占領してみよう。\n自分の拠点（駅の隅っこ）をクリックして【輸送】を選び、隣の拠点をクリックだ。\n送る量を決めたら右下の【行動確定】を押せ！\n（※背景をドラッグするとマップを見渡せるぞ）", allowedActions: ['move'],
         setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'bench', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 1 }),
         cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1
       },
@@ -109,7 +111,7 @@
     const generateWeather = () => { const r = Math.random(); if (r < 0.2) return 'typhoon'; if (r < 0.4) return 'cold'; return 'sunny'; };
     const getWeatherName = (weather) => { if (weather === 'typhoon') return '台風 (遠隔ロス増大)'; if (weather === 'cold') return '大寒波 (Lv1拠点ダメージ)'; return '晴れ'; };
     const renderWeatherIcon = (weather, sizeClass='w-6 h-6', imagesObj={}) => {
-      const key = `weather_${weather}`; if (imagesObj[key]) return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block`} />;
+      const key = `weather_${weather}`; if (imagesObj[key]) return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block drop-shadow-md`} />;
       if (weather === 'typhoon') return <span className="text-yellow-400">⛈️</span>; if (weather === 'cold') return <span className="text-cyan-300">❄️</span>; return <span className="text-orange-400">☀️</span>;
     };
 
@@ -531,9 +533,26 @@
 
       const [confirmQuit, setConfirmQuit] = useState(false);
 
-      // レイアウト切り替え用 State
+      // --- レイアウト・リサイズ・カメラ用 State と Ref ---
       const [layoutMode, setLayoutMode] = useState('auto'); // 'auto', 'mobile', 'pc'
       const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+      const [bottomPanelHeight, setBottomPanelHeight] = useState(160);
+      const [mapSize, setMapSize] = useState({ w: MAP_W, h: MAP_H });
+      
+      const mapContainerRef = useRef(null);
+      const canvasRef = useRef(null);
+      const bgImageRef = useRef(null);
+
+      // MISSING REFS ADDED BACK HERE
+      const animRef = useRef({ active: false, progress: 0, data: null });
+      const peerRef = useRef(null);
+      const connectionsRef = useRef([]);
+
+      // カメラ情報 { x: 論理X座標, y: 論理Y座標, scale: ズーム倍率 }
+      const cameraRef = useRef({ x: 0, y: 0, scale: 1 });
+      const dragInfo = useRef({ isDragging: false, wasDragged: false, startX: 0, startY: 0, startCamX: 0, startCamY: 0 });
+      const touchInfo = useRef({ mode: 'none', initialDist: 0, startScale: 1, startCamX: 0, startCamY: 0, vx: 0, vy: 0 });
+      const resizerDragInfo = useRef({ isDragging: false, startY: 0, startHeight: 0 });
 
       useEffect(() => {
         const handleResize = () => setWindowWidth(window.innerWidth);
@@ -542,26 +561,209 @@
       }, []);
 
       const isMobile = layoutMode === 'mobile' || (layoutMode === 'auto' && windowWidth < 768);
-      // レイアウト切り替え用のヘルパー関数
       const rx = (mobileClass, pcClass) => isMobile ? mobileClass : pcClass;
 
-      const canvasRef = useRef(null);
-      const animRef = useRef({ active: false, progress: 0, data: null });
-      
-      const peerRef = useRef(null);
-      const connectionsRef = useRef([]);
+      // コンテナサイズ監視とカメラ初期化
+      const initializedCamera = useRef(false);
+      useEffect(() => {
+        const resizeObserver = new ResizeObserver(entries => {
+          for (let entry of entries) {
+            if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+              setMapSize({ w: entry.contentRect.width, h: entry.contentRect.height });
+            }
+          }
+        });
+        if (mapContainerRef.current) resizeObserver.observe(mapContainerRef.current);
+        return () => resizeObserver.disconnect();
+      }, [phase]); // 画面切り替わりで再監視
 
-      const stateRef = useRef(gameState);
-      const phaseRef = useRef(phase);
-      const gameDataRef = useRef(gameData);
-      const gameModeRef = useRef(gameMode);
-      const tutorialStageRef = useRef(tutorialStage);
+      const resetCamera = () => {
+        if (!mapContainerRef.current) return;
+        const cw = mapContainerRef.current.clientWidth;
+        const ch = mapContainerRef.current.clientHeight;
+        const scale = Math.min(cw / MAP_W, ch / MAP_H) * 0.95;
+        const x = MAP_W / 2 - (cw / 2) / scale;
+        const y = MAP_H / 2 - (ch / 2) / scale;
+        cameraRef.current = { x, y, scale };
+      };
 
-      useEffect(() => { stateRef.current = gameState; }, [gameState]);
-      useEffect(() => { phaseRef.current = phase; }, [phase]);
-      useEffect(() => { gameDataRef.current = gameData; }, [gameData]);
-      useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
-      useEffect(() => { tutorialStageRef.current = tutorialStage; }, [tutorialStage]);
+      useEffect(() => {
+        if (phase === 'INPUT' && !initializedCamera.current && mapSize.w !== MAP_W && mapSize.w > 0) {
+          resetCamera();
+          initializedCamera.current = true;
+        }
+      }, [mapSize, phase]);
+
+      const zoom = (factor) => {
+        if (!mapContainerRef.current) return;
+        const newScale = Math.max(0.2, Math.min(cameraRef.current.scale * factor, 5));
+        const cx = mapSize.w / 2;
+        const cy = mapSize.h / 2;
+        const logicalX = cx / cameraRef.current.scale + cameraRef.current.x;
+        const logicalY = cy / cameraRef.current.scale + cameraRef.current.y;
+        cameraRef.current = { scale: newScale, x: logicalX - cx / newScale, y: logicalY - cy / newScale };
+      };
+
+      // --- ポインター（マウス/タッチ）入力処理 ---
+      const getPointerPos = (e) => {
+        if (!canvasRef.current) return { vx: 0, vy: 0, lx: 0, ly: 0 };
+        const rect = canvasRef.current.getBoundingClientRect();
+        let clientX = e.clientX;
+        let clientY = e.clientY;
+        if (e.type.startsWith('touch') && e.changedTouches && e.changedTouches.length > 0) {
+          clientX = e.changedTouches[0].clientX;
+          clientY = e.changedTouches[0].clientY;
+        }
+        const vx = clientX - rect.left;
+        const vy = clientY - rect.top;
+        const { x, y, scale } = cameraRef.current;
+        const lx = vx / scale + x;
+        const ly = vy / scale + y;
+        return { vx, vy, lx, ly };
+      };
+
+      const handlePointerDown = (e) => {
+        if (e.button && e.button !== 0) return;
+        if (e.type.startsWith('touch') && e.touches && e.touches.length > 1) return;
+
+        const { vx, vy, lx, ly } = getPointerPos(e);
+        if (!gameState) return;
+
+        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
+        const clickedNode = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+
+        if (!clickedNode) {
+          dragInfo.current = { isDragging: true, wasDragged: false, startX: vx, startY: vy, startCamX: cameraRef.current.x, startCamY: cameraRef.current.y };
+          if(e.pointerId !== undefined) canvasRef.current?.setPointerCapture(e.pointerId);
+        }
+      };
+
+      const handlePointerMove = (e) => {
+        const { vx, vy, lx, ly } = getPointerPos(e);
+        
+        if (dragInfo.current.isDragging) {
+          const dx = vx - dragInfo.current.startX;
+          const dy = vy - dragInfo.current.startY;
+          if (Math.abs(dx) > 5 || Math.abs(dy) > 5) dragInfo.current.wasDragged = true;
+          cameraRef.current.x = dragInfo.current.startCamX - dx / cameraRef.current.scale;
+          cameraRef.current.y = dragInfo.current.startCamY - dy / cameraRef.current.scale;
+        } else {
+          if (phase !== 'INPUT' || !gameState) return;
+          const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
+          const hovered = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+          setHoveredNode(hovered ? hovered.id : null);
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        if (dragInfo.current.isDragging) {
+          dragInfo.current.isDragging = false;
+          if(e.pointerId !== undefined) canvasRef.current?.releasePointerCapture(e.pointerId);
+        }
+      };
+
+      // スクロール・ピンチズーム対応
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas || phase === 'SETUP' || phase === 'WAITING_ROOM') return;
+
+        const onWheel = (e) => {
+          e.preventDefault();
+          const delta = -e.deltaY * 0.001;
+          let newScale = cameraRef.current.scale * Math.exp(delta);
+          newScale = Math.max(0.2, Math.min(newScale, 5));
+
+          const rect = canvas.getBoundingClientRect();
+          const vx = e.clientX - rect.left;
+          const vy = e.clientY - rect.top;
+          const logicalX = vx / cameraRef.current.scale + cameraRef.current.x;
+          const logicalY = vy / cameraRef.current.scale + cameraRef.current.y;
+
+          cameraRef.current = { scale: newScale, x: logicalX - vx / newScale, y: logicalY - vy / newScale };
+        };
+
+        const onTouchStart = (e) => {
+          if (e.touches.length === 2) {
+            e.preventDefault();
+            const t1 = e.touches[0]; const t2 = e.touches[1];
+            const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+            const cx = (t1.clientX + t2.clientX) / 2; const cy = (t1.clientY + t2.clientY) / 2;
+            const rect = canvas.getBoundingClientRect();
+            touchInfo.current = { mode: 'pinch', initialDist: dist, startScale: cameraRef.current.scale, startCamX: cameraRef.current.x, startCamY: cameraRef.current.y, vx: cx - rect.left, vy: cy - rect.top };
+          }
+        };
+
+        const onTouchMove = (e) => {
+          if (e.touches.length === 2 && touchInfo.current.mode === 'pinch') {
+            e.preventDefault();
+            const t1 = e.touches[0]; const t2 = e.touches[1];
+            const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+            let newScale = touchInfo.current.startScale * (dist / touchInfo.current.initialDist);
+            newScale = Math.max(0.2, Math.min(newScale, 5));
+            const { vx, vy, startCamX, startCamY, startScale } = touchInfo.current;
+            const logicalX = vx / startScale + startCamX;
+            const logicalY = vy / startScale + startCamY;
+            cameraRef.current = { scale: newScale, x: logicalX - vx / newScale, y: logicalY - vy / newScale };
+          }
+        };
+
+        const onTouchEnd = (e) => { if (e.touches.length < 2) touchInfo.current.mode = 'none'; };
+
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+        canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+        canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+        canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+
+        return () => {
+          canvas.removeEventListener('wheel', onWheel);
+          canvas.removeEventListener('touchstart', onTouchStart);
+          canvas.removeEventListener('touchmove', onTouchMove);
+          canvas.removeEventListener('touchend', onTouchEnd);
+        };
+      }, [phase]);
+
+      // --- リサイザー処理 ---
+      const handleResizerPointerDown = (e) => {
+        e.preventDefault();
+        resizerDragInfo.current = { isDragging: true, startY: e.clientY || (e.touches && e.touches[0].clientY), startHeight: bottomPanelHeight };
+        document.body.classList.add('resizing');
+        document.addEventListener('pointermove', handleResizerPointerMove);
+        document.addEventListener('pointerup', handleResizerPointerUp);
+        document.addEventListener('touchmove', handleResizerPointerMove, { passive: false });
+        document.addEventListener('touchend', handleResizerPointerUp);
+      };
+
+      const handleResizerPointerMove = (e) => {
+        if (!resizerDragInfo.current.isDragging) return;
+        if (e.cancelable) e.preventDefault();
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+        const dy = resizerDragInfo.current.startY - clientY;
+        let newHeight = resizerDragInfo.current.startHeight + dy;
+        newHeight = Math.max(80, Math.min(newHeight, window.innerHeight * 0.8));
+        setBottomPanelHeight(newHeight);
+      };
+
+      const handleResizerPointerUp = () => {
+        resizerDragInfo.current.isDragging = false;
+        document.body.classList.remove('resizing');
+        document.removeEventListener('pointermove', handleResizerPointerMove);
+        document.removeEventListener('pointerup', handleResizerPointerUp);
+        document.removeEventListener('touchmove', handleResizerPointerMove);
+        document.removeEventListener('touchend', handleResizerPointerUp);
+      };
+
+      // --- その他通信・ゲームロジック ---
+      const stateRefCurrent = useRef(gameState);
+      const phaseRefCurrent = useRef(phase);
+      const gameDataRefCurrent = useRef(gameData);
+      const gameModeRefCurrent = useRef(gameMode);
+      const tutorialStageRefCurrent = useRef(tutorialStage);
+
+      useEffect(() => { stateRefCurrent.current = gameState; }, [gameState]);
+      useEffect(() => { phaseRefCurrent.current = phase; }, [phase]);
+      useEffect(() => { gameDataRefCurrent.current = gameData; }, [gameData]);
+      useEffect(() => { gameModeRefCurrent.current = gameMode; }, [gameMode]);
+      useEffect(() => { tutorialStageRefCurrent.current = tutorialStage; }, [tutorialStage]);
 
       useEffect(() => {
         const loadImages = async () => {
@@ -580,10 +782,19 @@
         loadImages();
       }, []);
 
+      useEffect(() => {
+        if (gameState && gameState.weather) {
+          const url = BACKGROUNDS[gameState.weather].match(/url\("(.+)"\)/)[1];
+          const img = new Image();
+          img.src = url;
+          img.onload = () => { bgImageRef.current = img; };
+        }
+      }, [gameState?.weather]);
+
       const setupDataChannel = (conn) => {
         connectionsRef.current.push(conn);
         conn.on('open', () => {
-          if (gameModeRef.current === 'CLIENT') {
+          if (gameModeRefCurrent.current === 'CLIENT') {
             setPhase('WAITING_ROOM');
             sendMessage({ type: 'JOIN_REQ', uid: myUid });
           }
@@ -606,7 +817,7 @@
       };
 
       const handleNetworkMessage = (data) => {
-        const gMode = gameModeRef.current, currentPhase = phaseRef.current, gData = gameDataRef.current;
+        const gMode = gameModeRefCurrent.current, currentPhase = phaseRefCurrent.current, gData = gameDataRefCurrent.current;
         if (gMode === 'HOST') {
           if (data.type === 'JOIN_REQ') {
             if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
@@ -621,97 +832,51 @@
           } else if (data.type === 'CMD_SUBMIT') {
             const newGameData = { ...gData, commands: { ...gData.commands, [data.playerNum]: data.commands }, turnReady: { ...gData.turnReady, [data.playerNum]: true } };
             setGameData(newGameData);
-            checkTurnResolve(newGameData, stateRef.current);
+            checkTurnResolve(newGameData, stateRefCurrent.current);
           }
         } else if (gMode === 'CLIENT') {
           if (data.type === 'JOIN_ACK' && data.targetUid === myUid) {
             setMyPlayerNum(data.playerNum); setGameData(data.gameData); setPhase('WAITING_ROOM');
           } else if (data.type === 'ROOM_UPDATE') { setGameData(data.gameData);
-          } else if (data.type === 'GAME_START') { setGameState(data.state); setGameData(data.gameData); setPhase('INPUT');
-          } else if (data.type === 'TURN_RESOLVE') { startAnimation(stateRef.current, data.nextState, data.animData, data.allCommands, data.isGameOver); }
+          } else if (data.type === 'GAME_START') { setGameState(data.state); setGameData(data.gameData); setPhase('INPUT'); initializedCamera.current = false;
+          } else if (data.type === 'TURN_RESOLVE') { startAnimation(stateRefCurrent.current, data.nextState, data.animData, data.allCommands, data.isGameOver); }
         }
       };
 
       const startHosting = (pCount) => {
-        setGameMode('HOST');
-        setMyPlayerNum(1);
-        setErrorMsg('');
-        setPhase('WAITING_ROOM');
-        connectionsRef.current = [];
-
+        setGameMode('HOST'); setMyPlayerNum(1); setErrorMsg(''); setPhase('WAITING_ROOM'); connectionsRef.current = [];
         const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
         setRoomId(newRoomId);
-        
         const peer = new Peer(`homeless-wars-${newRoomId}`);
         peerRef.current = peer;
-
         peer.on('open', (id) => {
-          const initialGameData = {
-            hostUid: myUid, status: 'WAITING', playerCount: pCount,
-            players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [],
-            commands: {}, turnReady: {}
-          };
+          const initialGameData = { hostUid: myUid, status: 'WAITING', playerCount: pCount, players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [], commands: {}, turnReady: {} };
           setGameData(initialGameData);
         });
-
-        peer.on('connection', (conn) => {
-          setupDataChannel(conn);
-        });
-
-        peer.on('error', (err) => {
-          setErrorMsg('通信サーバーとの接続に失敗しました。');
-          setGameMode('MULTI');
-          setPhase('SETUP');
-          console.error(err);
-        });
+        peer.on('connection', (conn) => { setupDataChannel(conn); });
+        peer.on('error', (err) => { setErrorMsg('通信サーバーとの接続に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
       };
 
       const joinRoom = (rid) => {
         if (!rid) return;
-        setErrorMsg('');
-        const targetId = rid.toUpperCase();
-        setRoomId(targetId);
-        setGameMode('CLIENT');
-        setPhase('WAITING_ROOM'); 
-        connectionsRef.current = [];
-
-        const peer = new Peer();
-        peerRef.current = peer;
-
-        peer.on('open', () => {
-          const conn = peer.connect(`homeless-wars-${targetId}`);
-          setupDataChannel(conn);
-        });
-
-        peer.on('error', (err) => {
-          setErrorMsg('ルームが見つからないか、通信に失敗しました。');
-          setGameMode('MULTI');
-          setPhase('SETUP');
-          console.error(err);
-        });
+        setErrorMsg(''); const targetId = rid.toUpperCase(); setRoomId(targetId); setGameMode('CLIENT'); setPhase('WAITING_ROOM'); connectionsRef.current = [];
+        const peer = new Peer(); peerRef.current = peer;
+        peer.on('open', () => { const conn = peer.connect(`homeless-wars-${targetId}`); setupDataChannel(conn); });
+        peer.on('error', (err) => { setErrorMsg('ルームが見つからないか、通信に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
       };
 
       const checkTurnResolve = (currentGData, currentState) => {
         const hostPlayerNum = currentGData.players[myUid];
         if (!currentGData.turnReady[hostPlayerNum]) return; 
-        
-        const humanPlayers = Object.values(currentGData.players); 
-        const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
-        
+        const humanPlayers = Object.values(currentGData.players); const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
         const allReady = aliveHumanPlayers.every(p => currentGData.turnReady[p]);
         if (allReady && aliveHumanPlayers.length > 0) {
           const allCmds = [];
           aliveHumanPlayers.forEach(p => { if (currentGData.commands[p]) allCmds.push(...currentGData.commands[p]); });
-          const cpuCmds = generateCpuCommands(currentState, currentGData.cpuPlayers || []); 
-          allCmds.push(...cpuCmds);
-          
+          const cpuCmds = generateCpuCommands(currentState, currentGData.cpuPlayers || []); allCmds.push(...cpuCmds);
           const { nextState, animData } = simulateTurn(currentState, allCmds);
-          
-          const nextGameData = { ...currentGData, commands: {}, turnReady: {} }; 
-          setGameData(nextGameData);
-          
+          const nextGameData = { ...currentGData, commands: {}, turnReady: {} }; setGameData(nextGameData);
           sendMessage({ type: 'TURN_RESOLVE', nextState, animData, allCommands: allCmds, isGameOver: nextState.isGameOver });
-          
           startAnimation(currentState, nextState, animData, allCmds, nextState.isGameOver);
         }
       };
@@ -730,18 +895,13 @@
             const cleanNodes = nextState.nodes.filter(n => !n.isCollected);
             const cleanEdges = nextState.edges.filter(e => cleanNodes.some(n => n.id === e.s) && cleanNodes.some(n => n.id === e.t));
             const finalState = { ...nextState, nodes: cleanNodes, edges: cleanEdges };
-            setGameState(finalState);
-            setPlayerCommands([]);
+            setGameState(finalState); setPlayerCommands([]);
             
-            if (gameModeRef.current === 'TUTORIAL') {
-              const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStageRef.current);
-              if (!finalState.alivePlayers.includes(1)) {
-                 setPhase('GAME_OVER'); 
-              } else if (stageDef && stageDef.checkWin(finalState)) {
-                 setPhase('TUTORIAL_CLEAR'); 
-              } else {
-                 setPhase('INPUT');
-              }
+            if (gameModeRefCurrent.current === 'TUTORIAL') {
+              const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStageRefCurrent.current);
+              if (!finalState.alivePlayers.includes(1)) { setPhase('GAME_OVER'); 
+              } else if (stageDef && stageDef.checkWin(finalState)) { setPhase('TUTORIAL_CLEAR'); 
+              } else { setPhase('INPUT'); }
             } else {
               setPhase(isGameOver ? 'GAME_OVER' : 'INPUT');
             }
@@ -754,38 +914,30 @@
         let animationFrameId;
         const render = (time) => {
           const ctx = canvasRef.current?.getContext('2d');
-          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM' && phase !== 'TUTORIAL' && phase !== 'TUTORIAL_CLEAR' && phase !== 'TUTORIAL_SLIDES') {
+          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM' && phase !== 'TUTORIAL_CLEAR' && phase !== 'TUTORIAL_SLIDES') {
             drawCanvas(ctx, gameState, playerCommands, [], uiState, hoveredNode, animRef.current, time, phase);
           }
           animationFrameId = requestAnimationFrame(render);
         };
         render(performance.now());
         return () => cancelAnimationFrame(animationFrameId);
-      }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum, isMobile]); 
+      }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum, isMobile, mapSize]); 
 
       const quitGame = () => {
         setConfirmQuit(false);
         if (peerRef.current) peerRef.current.destroy();
-        connectionsRef.current.forEach(c => c.close());
-        connectionsRef.current = [];
-        setPhase('SETUP');
-        setGameMode(null);
-        setGameState(null);
-        setGameData(null);
-        setRoomId('');
-        setPlayerCommands([]);
-        setUiState({ mode: 'IDLE', nodeId: null, targetId: null, maxAmount: 0 });
+        connectionsRef.current.forEach(c => c.close()); connectionsRef.current = [];
+        setPhase('SETUP'); setGameMode(null); setGameState(null); setGameData(null); setRoomId(''); setPlayerCommands([]); setUiState({ mode: 'IDLE', nodeId: null, targetId: null, maxAmount: 0 });
       };
 
       const startPlayableTutorial = (stageId) => {
         setGameMode('TUTORIAL'); setTutorialStage(stageId); setMyPlayerNum(1);
-        const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === stageId);
-        if (!stageDef) return;
+        const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === stageId); if (!stageDef) return;
         const setupData = stageDef.setup();
         const alivePlayers = Array.from({length: setupData.playerCount}, (_, i) => i + 1);
         const chips = {}; for (let i=1; i<=setupData.playerCount; i++) chips[i] = [];
         const initialState = { nodes: setupData.nodes, edges: setupData.edges, turn: 1, weather: 'sunny', forecast: 'sunny', trashDays: [], playerCount: setupData.playerCount, alivePlayers, winner: null, isGameOver: false, chips };
-        setGameState(initialState); setPlayerCommands([]); setPhase('INPUT');
+        setGameState(initialState); setPlayerCommands([]); setPhase('INPUT'); initializedCamera.current = false;
       };
 
       const startSoloGame = (playerCount) => {
@@ -795,7 +947,7 @@
         const chips = {}; for (let i=1; i<=playerCount; i++) chips[i] = [];
         const trashDays = []; while (trashDays.length < 2) { const r = Math.floor(Math.random() * 7); if (!trashDays.includes(r)) trashDays.push(r); } trashDays.sort((a, b) => a - b);
         const initialState = { ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(), trashDays, playerCount, alivePlayers, winner: null, isGameOver: false, chips };
-        setGameState(initialState); setPlayerCommands([]); setPhase('INPUT');
+        setGameState(initialState); setPlayerCommands([]); setPhase('INPUT'); initializedCamera.current = false;
       };
 
       const startGame = () => {
@@ -807,7 +959,7 @@
         const initialState = { ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(), trashDays, playerCount: gameData.playerCount, alivePlayers, winner: null, isGameOver: false, chips };
         const humanPlayerIds = Object.values(gameData.players); const cpuPlayers = alivePlayers.filter(p => !humanPlayerIds.includes(p));
         const newGameData = { ...gameData, cpuPlayers, status: 'PLAYING' };
-        setGameData(newGameData); setGameState(initialState); setPhase('INPUT');
+        setGameData(newGameData); setGameState(initialState); setPhase('INPUT'); initializedCamera.current = false;
         sendMessage({ type: 'GAME_START', state: initialState, gameData: newGameData });
       };
 
@@ -816,8 +968,7 @@
         const GEMINI_API_KEY = "ここに_Gemini_APIキー_を貼り付ける";
         if (!GEMINI_API_KEY || GEMINI_API_KEY === "ここに_Gemini_APIキー_を貼り付ける" || GEMINI_API_KEY === "") {
           setAiAdvice("APIキーが設定されていないためAI参謀は利用できません。\nHTMLファイル内の GEMINI_API_KEY に取得したキーを貼り付けてください。");
-          setShowAiPanel(true);
-          return;
+          setShowAiPanel(true); return;
         }
         setIsAiLoading(true); setAiAdvice(null); setShowAiPanel(true);
         const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
@@ -825,41 +976,23 @@
         const myNodes = visibleNodes.filter(n => n.owner === myPlayerNum);
         const cpuNodes = visibleNodes.filter(n => n.owner !== myPlayerNum && n.owner !== 0 && n.type !== 'item');
         const neutralNodes = visibleNodes.filter(n => n.owner === 0 && n.type !== 'item');
-        const myEnergy = myNodes.reduce((sum, n) => sum + n.energy, 0);
-        const cpuEnergy = cpuNodes.reduce((sum, n) => sum + n.energy, 0);
-
+        const myEnergy = myNodes.reduce((sum, n) => sum + n.energy, 0); const cpuEnergy = cpuNodes.reduce((sum, n) => sum + n.energy, 0);
         const prompt = `現在ターン: ${gameState.turn}日目\n天候: ${getWeatherName(gameState.weather)}\nゴミ回収日: ${DAYS[gameState.trashDays[0]]}曜、${DAYS[gameState.trashDays[1]]}曜\n生存派閥数: ${gameState.alivePlayers.length}\n自派閥のショバ(拠点)数: ${myNodes.length} (総資源: ${myEnergy})\n視界内の敵ショバ数: ${cpuNodes.length} (総資源: ${cpuEnergy})\n視界内の未占領ショバ数: ${neutralNodes.length}\nあなたはホームレス地下帝国の冷徹な参謀です。上記の状況を元に、リーダー（プレイヤー）に向けて次の一手の戦術アドバイスを3〜4行程度で簡潔に提供してください。裏社会らしい荒々しくもクールな口調でお願いします。`;
         try {
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
           });
-          const data = await res.json();
-          setAiAdvice(data.candidates?.[0]?.content?.parts?.[0]?.text || "通信エラー。");
+          const data = await res.json(); setAiAdvice(data.candidates?.[0]?.content?.parts?.[0]?.text || "通信エラー。");
         } catch (e) { setAiAdvice("通信エラーが発生しました。"); } 
         finally { setIsAiLoading(false); }
       };
 
       const handleCanvasClick = (e) => {
+        if (dragInfo.current.wasDragged) { dragInfo.current.wasDragged = false; return; }
         if (phase !== 'INPUT' || !gameState.alivePlayers.includes(myPlayerNum)) return;
-        const rect = canvasRef.current.getBoundingClientRect();
-        
-        let clientX = e.clientX;
-        let clientY = e.clientY;
-        if (e.type === 'touchstart' || e.type === 'touchend') {
-          if (e.changedTouches && e.changedTouches.length > 0) {
-            clientX = e.changedTouches[0].clientX;
-            clientY = e.changedTouches[0].clientY;
-          }
-        }
-        
-        const scaleX = MAP_W / rect.width;
-        const scaleY = MAP_H / rect.height;
-        const x = (clientX - rect.left) * scaleX;
-        const y = (clientY - rect.top) * scaleY;
-        
+        const { lx, ly } = getPointerPos(e);
         const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
-        const clickedNode = gameState.nodes.find(n => getDistance(n, {x, y}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+        const clickedNode = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
 
         if (selectedChip) {
           const { id: chipId, idx: chipIdx } = selectedChip;
@@ -901,18 +1034,6 @@
             }
           } else setUiState({ mode: 'IDLE', nodeId: null, targetId: null });
         }
-      };
-
-      const handleCanvasMouseMove = (e) => {
-        if (phase !== 'INPUT' || !gameState) return;
-        const rect = canvasRef.current.getBoundingClientRect();
-        const scaleX = MAP_W / rect.width;
-        const scaleY = MAP_H / rect.height;
-        const x = (e.clientX - rect.left) * scaleX;
-        const y = (e.clientY - rect.top) * scaleY;
-        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
-        const hovered = gameState.nodes.find(n => getDistance(n, {x, y}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
-        setHoveredNode(hovered ? hovered.id : null);
       };
 
       const handleChipSelect = (chipId, idx) => {
@@ -986,17 +1107,33 @@
       };
 
       const drawCanvas = (ctx, state, commands, cpuCmds, ui, hoveredId, anim, time, currentPhase) => {
-        ctx.clearRect(0, 0, MAP_W, MAP_H);
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        if (canvas.width !== mapSize.w) canvas.width = mapSize.w;
+        if (canvas.height !== mapSize.h) canvas.height = mapSize.h;
+
+        ctx.clearRect(0, 0, mapSize.w, mapSize.h);
+
+        ctx.save();
+        ctx.scale(cameraRef.current.scale, cameraRef.current.scale);
+        ctx.translate(-cameraRef.current.x, -cameraRef.current.y);
+
+        if (bgImageRef.current && bgImageRef.current.complete) {
+          ctx.drawImage(bgImageRef.current, 0, 0, MAP_W, MAP_H);
+        } else {
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(0, 0, MAP_W, MAP_H);
+        }
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+        ctx.fillRect(0, 0, MAP_W, MAP_H);
+
         const visibleNodes = getVisibleNodes(myPlayerNum, state.nodes, state.edges);
         const { predicted, inflows } = currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS' ? calculatePrediction() : { predicted: state.nodes, inflows: {} };
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
-        for(let i=0; i<MAP_W; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,MAP_H); ctx.stroke(); }
-        for(let i=0; i<MAP_H; i+=50) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(MAP_W,i); ctx.stroke(); }
-
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
-        ctx.fillRect(0, 0, MAP_W, MAP_H);
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; 
+        ctx.lineWidth = 1 / cameraRef.current.scale;
+        for(let i=0; i<=MAP_W; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,MAP_H); ctx.stroke(); }
+        for(let i=0; i<=MAP_H; i+=50) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(MAP_W,i); ctx.stroke(); }
 
         ctx.globalCompositeOperation = 'destination-out';
         if (state.alivePlayers.includes(myPlayerNum)) {
@@ -1011,6 +1148,13 @@
         } else { ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, MAP_W, MAP_H); }
         ctx.globalCompositeOperation = 'source-over';
 
+        const drawStrokedText = (text, x, y, fillStyle, baseFontSize = 20) => {
+          const s = cameraRef.current.scale;
+          ctx.font = `bold ${baseFontSize / s}px sans-serif`;
+          ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4 / s;
+          ctx.strokeText(text, x, y); ctx.fillStyle = fillStyle; ctx.fillText(text, x, y);
+        };
+
         state.edges.forEach(edge => {
           const s = state.nodes.find(n => n.id === edge.s); const t = state.nodes.find(n => n.id === edge.t);
           if (!s || !t) return;
@@ -1019,12 +1163,13 @@
           const isCutPlanned = commands.some(c => c.type === 'cut' && ((c.nodeId === s.id && c.targetId === t.id) || (c.nodeId === t.id && c.targetId === s.id)));
 
           ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
-          if (isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS')) { ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4; ctx.setLineDash([10, 10]); } 
-          else { ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 5; ctx.setLineDash(edge.isOneWay ? [15, 10] : []); }
+          if (isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS')) { ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4 / cameraRef.current.scale; ctx.setLineDash([10 / cameraRef.current.scale, 10 / cameraRef.current.scale]); } 
+          else { ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 5 / cameraRef.current.scale; ctx.setLineDash(edge.isOneWay ? [15 / cameraRef.current.scale, 10 / cameraRef.current.scale] : []); }
           ctx.stroke(); ctx.setLineDash([]);
           if (edge.isOneWay) {
             const midX = (s.x + t.x) / 2, midY = (s.y + t.y) / 2, angle = Math.atan2(t.y - s.y, t.x - s.x);
-            ctx.save(); ctx.translate(midX, midY); ctx.rotate(angle); ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-10, -10); ctx.lineTo(-6, 0); ctx.lineTo(-10, 10); ctx.closePath();
+            const size = 12 / cameraRef.current.scale;
+            ctx.save(); ctx.translate(midX, midY); ctx.rotate(angle); ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size*0.8, -size*0.8); ctx.lineTo(-size*0.5, 0); ctx.lineTo(-size*0.8, size*0.8); ctx.closePath();
             ctx.fillStyle = isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') ? '#ef4444' : 'rgba(255, 255, 255, 0.6)'; ctx.fill(); ctx.restore();
           }
         });
@@ -1039,7 +1184,7 @@
                 ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
                 const hops = getHopDistance(cmd.nodeId, cmd.targetId, state.edges, [], s.mode === 'long_range');
                 ctx.strokeStyle = hops === 2 ? 'rgba(192, 132, 252, 0.8)' : 'rgba(14, 165, 233, 0.8)'; 
-                ctx.lineWidth = 4; ctx.setLineDash([10, 10]); ctx.lineDashOffset = -(time / 50) % 20; ctx.stroke(); ctx.setLineDash([]);
+                ctx.lineWidth = 4 / cameraRef.current.scale; ctx.setLineDash([10 / cameraRef.current.scale, 10 / cameraRef.current.scale]); ctx.lineDashOffset = -(time / 50) % 20; ctx.stroke(); ctx.setLineDash([]);
               }
             }
           });
@@ -1069,9 +1214,9 @@
           ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
           ctx.fillStyle = isBlinking ? '#ffffff' : (node.type === 'dump' ? 'rgba(132, 204, 22, 0.5)' : `${COLORS.players[drawOwner]}88`); ctx.fill();
 
-          if (node.mode === 'long_range') { ctx.beginPath(); ctx.arc(node.x, node.y, r + 7, 0, Math.PI * 2); ctx.strokeStyle = COLORS.long_range; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]); }
+          if (node.mode === 'long_range') { ctx.beginPath(); ctx.arc(node.x, node.y, r + 7, 0, Math.PI * 2); ctx.strokeStyle = COLORS.long_range; ctx.lineWidth = 2 / cameraRef.current.scale; ctx.setLineDash([5 / cameraRef.current.scale, 5 / cameraRef.current.scale]); ctx.stroke(); ctx.setLineDash([]); }
 
-          ctx.lineWidth = isSelected ? 4 : isHovered ? 2 : 2; ctx.strokeStyle = isSelected ? COLORS.highlight : (node.type === 'dump' ? '#4d7c0f' : COLORS.players[drawOwner]); ctx.stroke();
+          ctx.lineWidth = (isSelected ? 4 : isHovered ? 2 : 2) / cameraRef.current.scale; ctx.strokeStyle = isSelected ? COLORS.highlight : (node.type === 'dump' ? '#4d7c0f' : COLORS.players[drawOwner]); ctx.stroke();
           
           const imgKey = node.type === 'item' ? 'item' : (SHOBA_INFO[node.shobaType]?.imgKey);
           const imgObj = loadedImages[imgKey];
@@ -1080,28 +1225,31 @@
             const imgSize = r * 1.4;
             ctx.drawImage(imgObj, node.x - imgSize/2, node.y - imgSize/2, imgSize, imgSize);
           } else {
-            ctx.font = `${r * 1.2}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = `${r * 1.2 / cameraRef.current.scale}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             const emoji = node.type === 'item' ? '📦' : (SHOBA_EMOJI[node.shobaType] || '⛺');
             ctx.fillText(emoji, node.x, node.y);
           }
 
-          ctx.beginPath(); ctx.arc(node.x + r * 0.7, node.y + r * 0.7, 14, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = COLORS.players[drawOwner]; ctx.stroke();
-          ctx.fillStyle = '#ffffff'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(node.energy, node.x + r * 0.7, node.y + r * 0.7);
+          ctx.beginPath(); ctx.arc(node.x + r * 0.7, node.y + r * 0.7, 14, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); ctx.lineWidth = 2 / cameraRef.current.scale; ctx.strokeStyle = COLORS.players[drawOwner]; ctx.stroke();
+          
+          const s = cameraRef.current.scale;
+          ctx.fillStyle = '#ffffff'; ctx.font = `bold ${12/s}px sans-serif`; ctx.fillText(node.energy, node.x + r * 0.7, node.y + r * 0.7);
 
           let title = node.type === 'item' ? '謎の段ボール' : SHOBA_INFO[node.shobaType]?.name || '';
           if (node.level > 1 && node.type !== 'dump' && node.type !== 'item') title = `Lv.${node.level} ${getLevelName(node.level)}`;
           if (title) {
+            ctx.font = `${10/s}px sans-serif`;
             const textWidth = ctx.measureText(title).width;
-            ctx.fillStyle = 'rgba(15,23,42,0.8)'; ctx.fillRect(node.x - textWidth/2 - 6, node.y - r - 22, textWidth + 12, 18);
-            ctx.fillStyle = isBlinking ? '#cbd5e1' : (node.type === 'dump' ? '#d9f99d' : '#94a3b8'); ctx.font = '10px sans-serif'; ctx.fillText(title, node.x, node.y - r - 12);
+            ctx.fillStyle = 'rgba(15,23,42,0.8)'; ctx.fillRect(node.x - textWidth/2 - 6/s, node.y - r - 22/s, textWidth + 12/s, 18/s);
+            ctx.fillStyle = isBlinking ? '#cbd5e1' : (node.type === 'dump' ? '#d9f99d' : '#94a3b8'); ctx.fillText(title, node.x, node.y - r - 12/s);
           }
 
           if ((currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') && state.alivePlayers.includes(myPlayerNum)) {
             const diff = (predNode ? predNode.energy : node.energy) - node.energy, inflow = inflows[node.id];
             if (diff !== 0 || inflow > 0) {
-              ctx.font = 'bold 12px sans-serif';
-              if (diff < 0) { ctx.fillStyle = '#ef4444'; ctx.fillText(`${diff}`, node.x + 40, node.y - 20); }
-              if (inflow > 0) { ctx.fillStyle = '#38bdf8'; ctx.fillText(`+${inflow} IN`, node.x + 45, node.y); }
+              ctx.font = `bold ${12/s}px sans-serif`;
+              if (diff < 0) { ctx.fillStyle = '#ef4444'; ctx.fillText(`${diff}`, node.x + 40/s, node.y - 20/s); }
+              if (inflow > 0) { ctx.fillStyle = '#38bdf8'; ctx.fillText(`+${inflow} IN`, node.x + 45/s, node.y); }
             }
           }
           ctx.globalAlpha = 1.0;
@@ -1114,10 +1262,6 @@
           });
         }
 
-        const drawStrokedText = (text, x, y, fillStyle, fontSize = 20) => {
-          ctx.font = `bold ${fontSize}px sans-serif`; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4; ctx.strokeText(text, x, y); ctx.fillStyle = fillStyle; ctx.fillText(text, x, y);
-        };
-
         if (currentPhase === 'ANIMATING' && anim.active) {
           const p = anim.progress; 
           if (p < 0.25) {
@@ -1125,7 +1269,7 @@
             if (popP <= 1.0) {
               anim.data.prep.forEach(prep => {
                 const node = state.nodes.find(n => n.id === (prep.nodeId || prep.s)); if(!node || !visibleNodes.has(node.id)) return;
-                ctx.globalAlpha = 1 - Math.pow(popP, 2); const yOff = -40 * popP;
+                ctx.globalAlpha = 1 - Math.pow(popP, 2); const yOff = -40 * popP / cameraRef.current.scale;
                 if (prep.type === 'upgrade') drawStrokedText(`設備強化!`, node.x, node.y + yOff, '#34d399');
                 else if (prep.type === 'toggle') drawStrokedText(`MODE: ${prep.mode.toUpperCase()}`, node.x, node.y + yOff, '#c084fc');
                 else if (prep.type === 'cut') drawStrokedText(`CUT!`, node.x, node.y + yOff, '#f87171');
@@ -1150,11 +1294,11 @@
                   const dx = t.y - s.y, dy = -(t.x - s.x), len = Math.sqrt(dx*dx + dy*dy) || 1;
                   const waveAmt = Math.sin(particleP * Math.PI * 6 + i) * 6, nx = (dx/len) * waveAmt, ny = (dy/len) * waveAmt;
                   ctx.beginPath(); ctx.arc(px + nx, py + ny, m.hops === 2 ? 2.5 : 4, 0, Math.PI * 2);
-                  ctx.fillStyle = m.hops === 2 ? '#c084fc' : COLORS.players[m.owner]; ctx.shadowBlur = 8; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
+                  ctx.fillStyle = m.hops === 2 ? '#c084fc' : COLORS.players[m.owner]; ctx.shadowBlur = 8 / cameraRef.current.scale; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
                 }
               }
               const headP = Math.max(0, Math.min(1, moveP / 0.4));
-              if (headP > 0 && headP < 1) drawStrokedText(m.amount, s.x + (t.x - s.x) * headP, s.y + (t.y - s.y) * headP - 20, '#fff', 14);
+              if (headP > 0 && headP < 1) drawStrokedText(m.amount, s.x + (t.x - s.x) * headP, s.y + (t.y - s.y) * headP - 20/cameraRef.current.scale, '#fff', 14);
             });
           }
           if (p > 0.55 && p < 0.8) {
@@ -1168,51 +1312,47 @@
                   const angle = i * 137.5 * Math.PI / 180, dist = (20 + (i % 60)) * easeOut;
                   ctx.beginPath(); ctx.moveTo(node.x + Math.cos(angle) * Math.max(0, dist - 15), node.y + Math.sin(angle) * Math.max(0, dist - 15));
                   ctx.lineTo(node.x + Math.cos(angle) * dist, node.y + Math.sin(angle) * dist);
-                  ctx.lineWidth = 4 * (1 - popP); ctx.strokeStyle = i % 2 === 0 ? `rgba(250, 204, 21, ${1 - popP})` : `rgba(255, 255, 255, ${1 - popP})`; ctx.stroke();
+                  ctx.lineWidth = (4 * (1 - popP)) / cameraRef.current.scale; ctx.strokeStyle = i % 2 === 0 ? `rgba(250, 204, 21, ${1 - popP})` : `rgba(255, 255, 255, ${1 - popP})`; ctx.stroke();
                 }
                 ctx.restore();
               }
             });
           }
           if (p > 0.6 && p < 0.85) {
-            const popP = (p - 0.6) / 0.2, yOffset = popP * -40;
+            const popP = (p - 0.6) / 0.2, yOffset = (popP * -40) / cameraRef.current.scale;
             anim.data.combats.forEach(c => {
               const node = state.nodes.find(n => n.id === c.nodeId); if(!node || !visibleNodes.has(node.id)) return;
               ctx.globalAlpha = 1 - popP;
-              if (c.force === 0) {
-                 drawStrokedText(`相殺!`, node.x, node.y - 30 + yOffset, '#94a3b8', 24);
-              } else if (c.attacker === -1) {
-                 drawStrokedText(`-${c.force}`, node.x, node.y - 30 + yOffset, '#ef4444', 28);
-              } else {
-                 const tColor = c.attacker === myPlayerNum ? '#22c55e' : (COLORS.players[c.attacker] || '#22c55e');
-                 drawStrokedText(`+${c.force}`, node.x, node.y - 30 + yOffset, tColor, 24);
-              }
+              if (c.force === 0) { drawStrokedText(`相殺!`, node.x, node.y - 30/cameraRef.current.scale + yOffset, '#94a3b8', 24); } 
+              else if (c.attacker === -1) { drawStrokedText(`-${c.force}`, node.x, node.y - 30/cameraRef.current.scale + yOffset, '#ef4444', 28); } 
+              else { const tColor = c.attacker === myPlayerNum ? '#22c55e' : (COLORS.players[c.attacker] || '#22c55e'); drawStrokedText(`+${c.force}`, node.x, node.y - 30/cameraRef.current.scale + yOffset, tColor, 24); }
               ctx.globalAlpha = 1.0;
             });
             anim.data.captures.forEach(cap => {
               const node = state.nodes.find(n => n.id === cap.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(cap.newOwner === 0 ? '無人に...' : 'ショバ強奪!', node.x, node.y + 30 - yOffset, cap.newOwner === 0 ? '#cbd5e1' : COLORS.players[cap.newOwner], 22); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(cap.newOwner === 0 ? '無人に...' : 'ショバ強奪!', node.x, node.y + 30/cameraRef.current.scale - yOffset, cap.newOwner === 0 ? '#cbd5e1' : COLORS.players[cap.newOwner], 22); ctx.globalAlpha = 1.0;
             });
           }
           if (p > 0.85) {
-            const popP = (p - 0.85) / 0.15, yOffset = popP * -30;
+            const popP = (p - 0.85) / 0.15, yOffset = (popP * -30) / cameraRef.current.scale;
             anim.data.weatherDamages.forEach(w => {
               const node = state.nodes.find(n => n.id === w.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(`寒波ダメージ -${w.amount}`, node.x, node.y - 35 + yOffset, '#22d3ee', 16); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`寒波ダメージ -${w.amount}`, node.x, node.y - 35/cameraRef.current.scale + yOffset, '#22d3ee', 16); ctx.globalAlpha = 1.0;
             });
             anim.data.trashBonuses.forEach(b => {
               const node = state.nodes.find(n => n.id === b.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(`ゴミの日! +${b.amount}`, node.x, node.y - 35 + yOffset, '#84cc16', 20); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`ゴミの日! +${b.amount}`, node.x, node.y - 35/cameraRef.current.scale + yOffset, '#84cc16', 20); ctx.globalAlpha = 1.0;
             });
             anim.data.mines.forEach(m => {
               const node = state.nodes.find(n => n.id === m.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(`+${m.amount} 資源`, node.x + 40, node.y + yOffset, '#4ade80', 16); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`+${m.amount} 資源`, node.x + 40/cameraRef.current.scale, node.y + yOffset, '#4ade80', 16); ctx.globalAlpha = 1.0;
             });
             anim.data.items.forEach(itm => {
-               if (itm.owner === myPlayerNum) { ctx.globalAlpha = 1 - popP; drawStrokedText(`GET: ${CHIP_TYPES[itm.item].name}`, itm.x, itm.y - 50 + yOffset, '#facc15', 18); ctx.globalAlpha = 1.0; }
+               if (itm.owner === myPlayerNum) { ctx.globalAlpha = 1 - popP; drawStrokedText(`GET: ${CHIP_TYPES[itm.item].name}`, itm.x, itm.y - 50/cameraRef.current.scale + yOffset, '#facc15', 18); ctx.globalAlpha = 1.0; }
             });
           }
         }
+        ctx.restore();
       };
 
       const renderMenu = () => {
@@ -1235,12 +1375,16 @@
         const moveAssigned = playerCommands.filter(c => c.nodeId === node.id && c.type === 'move').reduce((s, c) => s + c.amount, 0);
         const availableEnergy = node.energy - moveAssigned;
         const menuWidth = 280, menuHeight = 80;
-        let leftPos = node.x, topPos = node.y - menuHeight - 30;
-        if (topPos < 10) topPos = node.y + 40; 
-        if (leftPos - menuWidth / 2 < 10) leftPos = menuWidth / 2 + 10; else if (leftPos + menuWidth / 2 > MAP_W - 10) leftPos = MAP_W - menuWidth / 2 - 10;
 
-        const leftPct = (leftPos / MAP_W) * 100;
-        const topPct = (topPos / MAP_H) * 100;
+        // Visual Coordinates (Pixel on container)
+        const vx = (node.x - cameraRef.current.x) * cameraRef.current.scale;
+        const vy = (node.y - cameraRef.current.y) * cameraRef.current.scale;
+
+        let leftPos = vx;
+        let topPos = vy - menuHeight - 30;
+
+        if (topPos < 10) topPos = vy + 40; 
+        if (leftPos - menuWidth / 2 < 10) leftPos = menuWidth / 2 + 10; else if (leftPos + menuWidth / 2 > mapSize.w - 10) leftPos = mapSize.w - menuWidth / 2 - 10;
 
         if (isMobile) {
           return (
@@ -1282,7 +1426,7 @@
           );
         } else {
           return (
-            <div className="absolute transform -translate-x-1/2 bg-slate-800/95 backdrop-blur border border-slate-500 rounded-lg p-2 flex gap-2 shadow-2xl z-20 w-auto" style={{ left: `${leftPct}%`, top: `${topPct}%` }}>
+            <div className="absolute transform -translate-x-1/2 bg-slate-800/95 backdrop-blur border border-slate-500 rounded-lg p-2 flex gap-2 shadow-2xl z-20 w-auto" style={{ left: `${leftPos}px`, top: `${topPos}px` }}>
               <button onClick={() => {
                   if (selectedChip?.id === 'STEALTH') {
                     if (!playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === node.id)) addCommand({ type: 'use_chip', chip: 'STEALTH', playerId: myPlayerNum, chipIdx: selectedChip.idx, targetId: node.id });
@@ -1439,7 +1583,7 @@
                   <h3 className={`${rx('text-lg', 'text-xl')} text-green-400 font-bold`}>チュートリアル</h3>
                   <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>基本を学びながら<br/>5つのステージをクリア</p>
                 </button>
-                <button onClick={() => setGameMode('SOLO')} className={`flex-1 bg-slate-800/80 ${rx('p-4', 'p-6')} rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors`}>
+                <button onClick={() => startSoloGame(2)} className={`flex-1 bg-slate-800/80 ${rx('p-4', 'p-6')} rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors`}>
                   <span className={`${rx('text-4xl mb-2', 'text-5xl mb-3')}`}>👤</span>
                   <h3 className={`${rx('text-lg', 'text-xl')} text-white font-bold`}>ソロプレイ</h3>
                   <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
@@ -1455,12 +1599,12 @@
                 <h3 className={`${rx('text-xl', 'text-2xl')} text-white font-bold ${rx('mb-4', 'mb-6')}`}>参加派閥数を選択</h3>
                 <div className={`flex ${rx('flex-col gap-3', 'flex-row gap-4')} w-full mb-6`}>
                   {[2, 3, 4].map(num => (
-                    <button key={num} onClick={() => startSoloGame(num)} className={`${rx('px-6 py-3', 'px-8 py-4')} bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors text-xl w-full`}>{num} 派閥</button>
+                    <button key={num} onClick={() => startSoloGame(num)} className={`${rx('px-6 py-3', 'px-8 py-4')} bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors text-base md:text-xl w-full`}>{num} 派閥</button>
                   ))}
                 </div>
                 <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-2 text-sm">◀ モード選択へ戻る</button>
               </div>
-            ) : gameMode === 'MULTI' ? (
+            ) : (
               <div className="flex flex-col items-center mt-4 w-full px-4">
                 <div className={`flex ${rx('flex-col gap-6', 'flex-row gap-8')} w-full max-w-2xl justify-center`}>
                   <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center flex-1">
@@ -1482,9 +1626,9 @@
                     {errorMsg && <p className="text-red-400 text-xs mt-3 font-bold">{errorMsg}</p>}
                   </div>
                 </div>
-                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-8 text-sm">◀ モード選択へ戻る</button>
+                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-6 md:mt-8 text-sm md:text-base">◀ モード選択へ戻る</button>
               </div>
-            ) : null}
+            )}
           </div>
         );
       }
@@ -1530,7 +1674,6 @@
               </div>
             )}
             
-            {/* 確認モーダル */}
             {confirmQuit && (
               <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
                 <div className="bg-slate-800 p-6 rounded-xl border border-slate-500 shadow-2xl max-w-sm w-full text-center">
@@ -1566,7 +1709,6 @@
             )}
           </div>
 
-          {/* 確認モーダル */}
           {confirmQuit && (
             <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
               <div className="bg-slate-800 p-6 rounded-xl border border-slate-500 shadow-2xl max-w-sm w-full text-center">
@@ -1580,7 +1722,7 @@
             </div>
           )}
           
-          <div className={`absolute top-0 w-full max-w-[900px] ${rx('p-2 mt-10', 'p-4 mt-8')} flex justify-between items-start z-10 pointer-events-none`}>
+          <div className={`flex-shrink-0 w-full max-w-[1200px] ${rx('p-2 mt-12', 'p-4 mt-8')} flex justify-between items-start z-10 pointer-events-none`}>
             <div className={`flex flex-col ${rx('gap-1', 'gap-2')} pointer-events-auto`}>
               <div className={`flex ${rx('gap-1', 'gap-3')}`}>
                 {Array.from({length: gameState.playerCount}).map((_, i) => {
@@ -1618,7 +1760,7 @@
             
             <div className={`flex flex-col items-end ${rx('gap-1', 'gap-2')}`}>
               {gameMode === 'MULTI' && <div className={`text-green-400 font-mono ${rx('text-[10px]', 'text-sm')} bg-slate-800/80 px-2 py-0.5 rounded border border-green-600/50 flex items-center gap-1`}><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span><span className={`${rx('hidden', 'inline')}`}>ROOM: </span>{roomId}</div>}
-              <div className={`flex ${rx('flex-col items-end gap-1', 'flex-row items-center gap-4')} bg-slate-800/90 border border-slate-600 ${rx('px-3 py-1 rounded-lg', 'px-5 py-2 rounded-full')} shadow-lg`}>
+              <div className={`flex ${rx('flex-col items-end gap-1', 'flex-row items-center gap-4')} bg-slate-800/90 border border-slate-600 ${rx('px-3 py-1 rounded-lg', 'px-5 py-2 rounded-full')} shadow-lg pointer-events-auto`}>
                 <div className={`flex items-center gap-1 text-slate-300 ${rx('text-xs', 'text-base')}`}>
                   <span className="text-sky-400">📅</span> <span className="font-bold">{gameState.turn}日目 <span className={`${rx('hidden', 'inline')}`}>({DAYS[currentDayIndex]})</span></span>
                 </div>
@@ -1632,13 +1774,19 @@
             </div>
           </div>
 
-          <div className={`relative border-y border-slate-700 shadow-2xl flex-shrink-0 touch-none ${rx('mt-16 w-full', 'mt-16 w-full max-w-[900px] rounded-xl')}`} style={{ aspectRatio: '3/2', backgroundImage: gameState ? BACKGROUNDS[gameState.weather] : BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center' }}>
-            
-            <div className={`absolute inset-0 ${rx('', 'rounded-xl')} overflow-hidden`}>
-              <canvas ref={canvasRef} width={MAP_W} height={MAP_H} onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} className={`absolute top-0 left-0 w-full h-full ${phase==='INPUT' ? 'cursor-crosshair' : ''}`} />
+          <div className="flex-1 w-full max-w-[1200px] flex flex-col min-h-0 relative z-0">
+            <div className="flex-1 relative border border-slate-700 bg-slate-800/50 rounded-t-xl overflow-hidden touch-none" ref={mapContainerRef}>
               
+              <canvas ref={canvasRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp} onPointerLeave={handlePointerUp} onClick={handleCanvasClick} className={`absolute top-0 left-0 w-full h-full ${phase==='INPUT' ? 'cursor-crosshair' : ''}`} />
+              
+              <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20 pointer-events-auto">
+                <button onClick={()=>zoom(1.2)} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:p-3 rounded-lg text-white border border-slate-600 shadow-lg text-lg">➕</button>
+                <button onClick={()=>zoom(0.8)} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:p-3 rounded-lg text-white border border-slate-600 shadow-lg text-lg">➖</button>
+                <button onClick={resetCamera} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:p-3 rounded-lg text-white border border-slate-600 shadow-lg text-lg">🔄</button>
+              </div>
+
               {gameMode === 'TUTORIAL' && phase === 'INPUT' && (
-                <div className={`absolute ${rx('top-10 w-[90%]', 'top-24 w-full max-w-3xl')} left-1/2 transform -translate-x-1/2 z-20 pointer-events-none`}>
+                <div className={`absolute ${rx('top-4 w-[90%]', 'top-8 w-full max-w-3xl')} left-1/2 transform -translate-x-1/2 z-20 pointer-events-none`}>
                   <div className="bg-slate-800/95 border border-sky-500 text-sky-100 p-3 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.4)] pointer-events-auto text-center">
                     <h3 className={`${rx('text-sm', 'text-lg')} font-bold text-yellow-400 mb-1`}>{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.title}</h3>
                     <p className={`${rx('text-xs', 'text-sm')} whitespace-pre-wrap leading-relaxed`}>{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.message}</p>
@@ -1675,13 +1823,13 @@
                 <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 text-center">
                   <h1 className={`${rx('text-4xl', 'text-7xl')} font-black mb-4 text-green-400 drop-shadow-lg`}>STAGE CLEAR!</h1>
                   {tutorialStage < PLAYABLE_TUTORIALS.length ? (
-                    <button onClick={() => startPlayableTutorial(tutorialStage + 1)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl`}>
+                    <button onClick={() => startPlayableTutorial(tutorialStage + 1)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>
                       次のステージへ ▶
                     </button>
                   ) : (
                     <div className="flex flex-col items-center">
                       <p className={`text-yellow-400 ${rx('text-lg mb-4', 'text-2xl mb-6')} font-bold`}>全てのチュートリアルをクリアしました！</p>
-                      <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl transition-all shadow-xl`}>
+                      <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl transition-all shadow-xl pointer-events-auto`}>
                         タイトルへ戻る
                       </button>
                     </div>
@@ -1697,61 +1845,65 @@
                   {gameState.winner !== myPlayerNum && gameState.winner !== null && <p className={`text-red-400 ${rx('text-xl', 'text-2xl')} font-bold mb-4 tracking-widest`}>地下帝国 陥落</p>}
                   
                   {gameMode === 'TUTORIAL' ? (
-                     <button onClick={() => startPlayableTutorial(tutorialStage)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl`}>リトライ</button>
+                     <button onClick={() => startPlayableTutorial(tutorialStage)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>リトライ</button>
                   ) : (
-                     <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl`}>タイトルへ戻る</button>
+                     <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>タイトルへ戻る</button>
                   )}
                 </div>
               )}
+
+              {renderTargetPrompt()}
+              {renderSlider()}
             </div>
 
-            {renderTargetPrompt()}
-            {renderSlider()}
+            <div className="h-3 md:h-4 bg-slate-700 cursor-row-resize hover:bg-sky-500 transition-colors z-30 w-full flex-shrink-0 flex items-center justify-center border-x border-slate-700 pointer-events-auto" onPointerDown={handleResizerPointerDown} style={{ touchAction: 'none' }}>
+               <div className="w-12 h-1 bg-slate-400 rounded-full pointer-events-none"></div>
+            </div>
+
+            <div style={{ height: bottomPanelHeight }} className="w-full flex flex-col md:flex-row gap-2 md:gap-6 px-2 md:px-4 py-2 flex-shrink-0 border-x border-b border-slate-700 rounded-b-xl bg-slate-900 pointer-events-auto overflow-y-auto">
+              <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-2 md:p-4 relative flex flex-col min-h-0">
+                <h3 className={`text-slate-400 ${rx('text-xs', 'text-sm')} font-bold mb-2 flex items-center justify-between flex-shrink-0`}>
+                  <div className="flex items-center gap-1">🪙 行動予定 <span className={`${rx('hidden', 'inline')}`}>(1ショバにつき1行動)</span></div>
+                  <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers?.includes(myPlayerNum)} className={`flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 ${rx('px-2 py-1 text-[10px]', 'px-3 py-1 text-xs')} rounded transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed`}>
+                    ✨ <span className={`${rx('hidden', 'inline')}`}>参謀AIに</span>相談
+                  </button>
+                </h3>
+                {!gameState?.alivePlayers?.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
+                   <div className={`text-red-400 ${rx('text-xs', 'text-sm')} flex-shrink-0`}>あなたの派閥は全滅しました。観戦モードです。</div>
+                ) : (
+                  <div className={`flex flex-wrap ${rx('gap-1', 'gap-2')} overflow-y-auto content-start`}>
+                    {playerCommands.map((cmd, idx) => (
+                      <div key={idx} className={`border rounded ${rx('px-2 py-1 text-[10px]', 'px-3 py-1.5 text-sm')} flex items-center gap-1 shadow ${cmd.type === 'use_chip' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-200' : 'bg-slate-700 border-slate-600 text-white'}`}>
+                        {cmd.type === 'move' && (() => {
+                           const isStealth = playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === cmd.nodeId);
+                           return <><span className="text-sky-400">➡️</span> {cmd.nodeId} → {cmd.targetId} ({cmd.amount}) {isStealth && '(隠密)'}</>;
+                        })()}
+                        {cmd.type === 'toggle_mode' && <><span className="text-purple-400">📡</span> {cmd.nodeId} 遠隔切替</>}
+                        {cmd.type === 'upgrade' && <><span className="text-emerald-400">⛺</span> {cmd.nodeId} 設備強化</>}
+                        {cmd.type === 'cut' && <><span className="text-red-400">✂️</span> {cmd.nodeId}-{cmd.targetId} 切断</>}
+                        {cmd.type === 'use_chip' && (() => {
+                          const info = CHIP_TYPES[cmd.chip];
+                          const imgSrc = loadedImages[info.imgKey]?.src;
+                          return (
+                            <>
+                              {imgSrc ? <img src={imgSrc} className={`${rx('w-3 h-3', 'w-4 h-4')} object-contain`}/> : <span className="text-indigo-400">{info.icon}</span>}
+                              <span className={`${rx('hidden', 'inline')}`}>{info.name}</span> {cmd.targetId && `-> ${cmd.targetId}`}
+                            </>
+                          );
+                        })()}
+                        {phase === 'INPUT' && <button onClick={() => removeCommand(cmd)} className="text-slate-400 hover:text-white ml-1">❌</button>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className={`flex-shrink-0 w-full md:w-64 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-black rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg ${rx('h-14 text-xl', 'h-auto text-2xl')}`}>
+                <span className={`${rx('text-xl', 'text-2xl')}`}>▶️</span> {gameState?.alivePlayers?.includes(myPlayerNum) ? '行動確定' : '待機中'}
+              </button>
+            </div>
           </div>
 
           {renderMenu()}
-
-          <div className={`w-full max-w-[900px] flex ${rx('flex-col gap-2 px-2 mt-2 pb-24', 'flex-row gap-6 px-4 mt-4 pb-2')} flex-1 min-h-0 relative z-0`}>
-            <div className={`flex-1 bg-slate-800 border border-slate-700 rounded-xl ${rx('p-2', 'p-4')} overflow-y-auto relative flex flex-col`}>
-              <h3 className={`text-slate-400 ${rx('text-xs', 'text-sm')} font-bold mb-2 flex items-center justify-between flex-shrink-0`}>
-                <div className="flex items-center gap-1">🪙 行動予定 <span className={`${rx('hidden', 'inline')}`}>(1ショバにつき1行動)</span></div>
-                <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers?.includes(myPlayerNum)} className={`flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 ${rx('px-2 py-1 text-[10px]', 'px-3 py-1 text-xs')} rounded transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed`}>
-                  ✨ <span className={`${rx('hidden', 'inline')}`}>参謀AIに</span>相談
-                </button>
-              </h3>
-              {!gameState?.alivePlayers?.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
-                 <div className={`text-red-400 ${rx('text-xs', 'text-sm')}`}>あなたの派閥は全滅しました。観戦モードです。</div>
-              ) : (
-                <div className={`flex flex-wrap ${rx('gap-1', 'gap-2')} overflow-y-auto content-start`}>
-                  {playerCommands.map((cmd, idx) => (
-                    <div key={idx} className={`border rounded ${rx('px-2 py-1 text-[10px]', 'px-3 py-1.5 text-sm')} flex items-center gap-1 shadow ${cmd.type === 'use_chip' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-200' : 'bg-slate-700 border-slate-600 text-white'}`}>
-                      {cmd.type === 'move' && (() => {
-                         const isStealth = playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === cmd.nodeId);
-                         return <><span className="text-sky-400">➡️</span> {cmd.nodeId} → {cmd.targetId} ({cmd.amount}) {isStealth && '(隠密)'}</>;
-                      })()}
-                      {cmd.type === 'toggle_mode' && <><span className="text-purple-400">📡</span> {cmd.nodeId} 遠隔切替</>}
-                      {cmd.type === 'upgrade' && <><span className="text-emerald-400">⛺</span> {cmd.nodeId} 設備強化</>}
-                      {cmd.type === 'cut' && <><span className="text-red-400">✂️</span> {cmd.nodeId}-{cmd.targetId} 切断</>}
-                      {cmd.type === 'use_chip' && (() => {
-                        const info = CHIP_TYPES[cmd.chip];
-                        const imgSrc = loadedImages[info.imgKey]?.src;
-                        return (
-                          <>
-                            {imgSrc ? <img src={imgSrc} className={`${rx('w-3 h-3', 'w-4 h-4')} object-contain`}/> : <span className="text-indigo-400">{info.icon}</span>}
-                            <span className={`${rx('hidden', 'inline')}`}>{info.name}</span> {cmd.targetId && `-> ${cmd.targetId}`}
-                          </>
-                        );
-                      })()}
-                      {phase === 'INPUT' && <button onClick={() => removeCommand(cmd)} className="text-slate-400 hover:text-white ml-1">❌</button>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className={`${rx('w-full py-3 h-12 text-lg', 'w-64 h-auto text-xl')} bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-black rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg flex-shrink-0`}>
-              <span className={`${rx('text-xl', 'text-2xl')}`}>▶️</span> {gameState?.alivePlayers?.includes(myPlayerNum) ? '行動確定' : '待機中'}
-            </button>
-          </div>
         </div>
       );
     }
