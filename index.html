@@ -3,12 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (ローカル対戦版)</title>
+  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (簡単ローカル対戦版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- 超簡単にP2P通信ができる無料ライブラリ「PeerJS」を追加 -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body class="bg-slate-900 overflow-hidden text-white">
   <div id="root"></div>
@@ -69,7 +72,6 @@
     const SHOBA_EMOJI = { station: '🚉', bench: '🪑', underpass: '🌉', ruin: '🏚️', dump: '🗑️' };
     const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
 
-    // --- チュートリアルスライド（ドキュメント用） ---
     const TUTORIAL_SLIDES = [
       { title: "👑 地下帝国のドンを目指せ", icon: "⛺", content: "お前は路上を生き抜く派閥のリーダーだ。他の派閥と「ショバ（居場所）」を奪い合い、自分以外のすべての派閥を街から追い出せば勝利となる。\nショバにある数字は「資源（空き缶や仲間の数）」だ。この資源を他のショバに送り込んで、襲撃や防衛を行うんだ。" },
       { title: "🛒 カチコミと移動", icon: "➡️", content: "自分のショバをクリックするとメニューが開く。\n「輸送」を選び、隣接するショバを選択して送り込む資源の量を決めろ。\n全員が行動を「確定」すると、一斉に移動と乱闘が始まる【同時ターン制】だ。相手の裏をかけ！" },
@@ -79,129 +81,45 @@
       { title: "⚔️ 血みどろの乱戦", icon: "⚔️", content: "複数の派閥が同じショバにカチコミをかけると、入り乱れての「大乱戦」に発展する。\nお互いの資源がランダムに削り合いとなり、最後まで立っていた（資源が多かった）派閥がそのショバをぶんどる仕組みだ。\n「拾った酒」で攻撃力を倍増させるなど、アイテムを汚く使って勝ち残れ！" }
     ];
 
-    // --- プレイアブル チュートリアルステージ定義 ---
     const PLAYABLE_TUTORIALS = [
       {
-        id: 1,
-        title: "STAGE 1: 路上デビュー",
-        message: "まずは隣の中立拠点（公園のベンチ）を占領してみよう。\n自分の拠点（駅の隅っこ）をクリックして【輸送】を選び、隣の拠点をクリックだ。\n送る量を決めたら右下の【行動確定】を押せ！",
-        allowedActions: ['move'],
-        setup: () => ({
-          nodes: [
-            { id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
-            { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'bench', level: 1, mode: 'normal' }
-          ],
-          edges: [{ s: 1, t: 2, isOneWay: false }],
-          playerCount: 1,
-        }),
-        cpuLogic: () => [],
-        checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1
+        id: 1, title: "STAGE 1: 路上デビュー", message: "まずは隣の中立拠点（公園のベンチ）を占領してみよう。\n自分の拠点（駅の隅っこ）をクリックして【輸送】を選び、隣の拠点をクリックだ。\n送る量を決めたら右下の【行動確定】を押せ！", allowedActions: ['move'],
+        setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'bench', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 1 }),
+        cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1
       },
       {
-        id: 2,
-        title: "STAGE 2: 縄張り争い",
-        message: "右側に敵の派閥がうろついている。相手の拠点にカチコミをかけて奪い取れ！\n相手より多くの資源（エネルギー）を送り込めば勝てるぞ。",
-        allowedActions: ['move'],
-        setup: () => ({
-          nodes: [
-            { id: 1, x: 250, y: 300, owner: 1, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
-            { id: 2, x: 650, y: 300, owner: 2, energy: 20, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
-          ],
-          edges: [{ s: 1, t: 2, isOneWay: false }],
-          playerCount: 2,
-        }),
-        cpuLogic: () => [], 
-        checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1 || !state.alivePlayers.includes(2)
+        id: 2, title: "STAGE 2: 縄張り争い", message: "右側に敵の派閥がうろついている。相手の拠点にカチコミをかけて奪い取れ！\n相手より多くの資源（エネルギー）を送り込めば勝てるぞ。", allowedActions: ['move'],
+        setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 2, energy: 20, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 2 }),
+        cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1 || !state.alivePlayers.includes(2)
       },
       {
-        id: 3,
-        title: "STAGE 3: 地盤固め",
-        message: "資源が30以上溜まると【設備強化】ができる。\nレベルを上げると最大備蓄量と毎ターンの回復量が増えるぞ。\nターンを進めて資源を貯め、自分の拠点をLv2（トタン屋根）にしてみよう。",
-        allowedActions: ['upgrade', 'move'],
-        setup: () => ({
-          nodes: [
-            { id: 1, x: 450, y: 300, owner: 1, energy: 10, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
-          ],
-          edges: [],
-          playerCount: 1,
-        }),
-        cpuLogic: () => [],
-        checkWin: (state) => state.nodes.find(n => n.id === 1)?.level >= 2
+        id: 3, title: "STAGE 3: 地盤固め", message: "資源が30以上溜まると【設備強化】ができる。\nレベルを上げると最大備蓄量と毎ターンの回復量が増えるぞ。\nターンを進めて資源を貯め、自分の拠点をLv2（トタン屋根）にしてみよう。", allowedActions: ['upgrade', 'move'],
+        setup: () => ({ nodes: [{ id: 1, x: 450, y: 300, owner: 1, energy: 10, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }], edges: [], playerCount: 1 }),
+        cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 1)?.level >= 2
       },
       {
-        id: 4,
-        title: "STAGE 4: 鉄壁の防衛",
-        message: "敵の大群が毎ターン攻めてくる！\n【カット(✂️)】を使って道を1ターン封鎖し、相手の攻撃をやり過ごせ。\nコストは10かかるが、防衛の要だ。3ターン耐え抜くか、敵を倒せばクリアだ。",
-        allowedActions: ['move', 'upgrade', 'cut'],
-        setup: () => ({
-          nodes: [
-            { id: 1, x: 250, y: 300, owner: 1, energy: 40, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
-            { id: 2, x: 650, y: 300, owner: 2, energy: 100, maxEnergy: 200, generation: 15, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
-          ],
-          edges: [{ s: 1, t: 2, isOneWay: false }],
-          playerCount: 2,
-        }),
-        cpuLogic: (state) => {
-          const cmds = [];
-          const enemyNode = state.nodes.find(n => n.id === 2);
-          if (enemyNode && enemyNode.energy > 20) {
-            cmds.push({ type: 'move', nodeId: 2, targetId: 1, amount: 20, playerId: 2 });
-          }
-          return cmds;
-        },
+        id: 4, title: "STAGE 4: 鉄壁の防衛", message: "敵の大群が毎ターン攻めてくる！\n【カット(✂️)】を使って道を1ターン封鎖し、相手の攻撃をやり過ごせ。\nコストは10かかるが、防衛の要だ。3ターン耐え抜くか、敵を倒せばクリアだ。", allowedActions: ['move', 'upgrade', 'cut'],
+        setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 40, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 2, energy: 100, maxEnergy: 200, generation: 15, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 2 }),
+        cpuLogic: (state) => { const cmds = []; const enemyNode = state.nodes.find(n => n.id === 2); if (enemyNode && enemyNode.energy > 20) { cmds.push({ type: 'move', nodeId: 2, targetId: 1, amount: 20, playerId: 2 }); } return cmds; },
         checkWin: (state) => state.turn > 3 || state.nodes.find(n => n.id === 2)?.owner === 1
       },
       {
-        id: 5,
-        title: "STAGE 5: 出稼ぎとアイテム",
-        message: "【遠隔切替(📡)】をすると、回復が止まる代わりに2マス先までカチコミできる。ただし輸送ロス（半減）があるぞ。\n上の謎の段ボールを壊して「攻撃力倍増」アイテムを取り、遠くにいる敵を倒せ！",
-        allowedActions: ['move', 'upgrade', 'cut', 'toggle_mode', 'use_chip'],
-        setup: () => ({
-          nodes: [
-            { id: 1, x: 150, y: 300, owner: 1, energy: 80, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
-            { id: 2, x: 450, y: 300, owner: 0, energy: 50, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'underpass', level: 1, mode: 'normal' },
-            { id: 3, x: 750, y: 300, owner: 2, energy: 30, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
-            { id: 4, x: 450, y: 150, owner: 0, energy: 5, maxEnergy: 10, generation: 0, type: 'item', item: 'ATK_BOOST', level: 1, mode: 'normal' }
-          ],
-          edges: [
-            { s: 1, t: 2, isOneWay: false },
-            { s: 2, t: 3, isOneWay: false },
-            { s: 2, t: 4, isOneWay: false }
-          ],
-          playerCount: 2,
-        }),
-        cpuLogic: () => [], 
-        checkWin: (state) => state.nodes.find(n => n.id === 3)?.owner === 1 || !state.alivePlayers.includes(2)
+        id: 5, title: "STAGE 5: 出稼ぎとアイテム", message: "【遠隔切替(📡)】をすると、回復が止まる代わりに2マス先までカチコミできる。ただし輸送ロス（半減）があるぞ。\n上の謎の段ボールを壊して「攻撃力倍増」アイテムを取り、遠くにいる敵を倒せ！", allowedActions: ['move', 'upgrade', 'cut', 'toggle_mode', 'use_chip'],
+        setup: () => ({ nodes: [{ id: 1, x: 150, y: 300, owner: 1, energy: 80, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 450, y: 300, owner: 0, energy: 50, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'underpass', level: 1, mode: 'normal' }, { id: 3, x: 750, y: 300, owner: 2, energy: 30, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 4, x: 450, y: 150, owner: 0, energy: 5, maxEnergy: 10, generation: 0, type: 'item', item: 'ATK_BOOST', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }, { s: 2, t: 3, isOneWay: false }, { s: 2, t: 4, isOneWay: false }], playerCount: 2 }),
+        cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 3)?.owner === 1 || !state.alivePlayers.includes(2)
       }
     ];
 
-    const generateWeather = () => {
-      const r = Math.random();
-      if (r < 0.2) return 'typhoon';
-      if (r < 0.4) return 'cold';
-      return 'sunny';
-    };
-
-    const getWeatherName = (weather) => {
-      if (weather === 'typhoon') return '台風 (遠隔ロス増大)';
-      if (weather === 'cold') return '大寒波 (Lv1拠点ダメージ)';
-      return '晴れ';
-    };
-
+    const generateWeather = () => { const r = Math.random(); if (r < 0.2) return 'typhoon'; if (r < 0.4) return 'cold'; return 'sunny'; };
+    const getWeatherName = (weather) => { if (weather === 'typhoon') return '台風 (遠隔ロス増大)'; if (weather === 'cold') return '大寒波 (Lv1拠点ダメージ)'; return '晴れ'; };
     const renderWeatherIcon = (weather, sizeClass='w-6 h-6', imagesObj={}) => {
-      const key = `weather_${weather}`;
-      if (imagesObj[key]) return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block`} />;
-      if (weather === 'typhoon') return <span className="text-yellow-400">⛈️</span>;
-      if (weather === 'cold') return <span className="text-cyan-300">❄️</span>;
-      return <span className="text-orange-400">☀️</span>;
+      const key = `weather_${weather}`; if (imagesObj[key]) return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block`} />;
+      if (weather === 'typhoon') return <span className="text-yellow-400">⛈️</span>; if (weather === 'cold') return <span className="text-cyan-300">❄️</span>; return <span className="text-orange-400">☀️</span>;
     };
 
     const intersects = (a, b, c, d) => {
       const ccw = (p1, p2, p3) => (p3.y - p1.y) * (p2.x - p1.x) > (p2.y - p1.y) * (p3.x - p1.x);
-      if (a.x === c.x && a.y === c.y) return false;
-      if (a.x === d.x && a.y === d.y) return false;
-      if (b.x === c.x && b.y === c.y) return false;
-      if (b.x === d.x && b.y === d.y) return false;
+      if (a.x === c.x && a.y === c.y) return false; if (a.x === d.x && a.y === d.y) return false; if (b.x === c.x && b.y === c.y) return false; if (b.x === d.x && b.y === d.y) return false;
       return ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
     };
 
@@ -226,10 +144,7 @@
         if (e.s === id1) neighbors.push(e.t);
         else if (e.t === id1 && (!e.isOneWay || ignoreOneWay)) neighbors.push(e.s);
       });
-      
-      for (const n of neighbors) {
-        if (canMove(n, id2, edges, cutEdges, ignoreOneWay)) return 2;
-      }
+      for (const n of neighbors) { if (canMove(n, id2, edges, cutEdges, ignoreOneWay)) return 2; }
       return Infinity;
     };
 
@@ -243,19 +158,10 @@
         if (n.owner === playerId) {
           visible.add(n.id);
           const neighbors1 = new Set();
-          edges.forEach(e => {
-            if (e.s === n.id) neighbors1.add(e.t);
-            if (e.t === n.id) neighbors1.add(e.s);
-          });
+          edges.forEach(e => { if (e.s === n.id) neighbors1.add(e.t); if (e.t === n.id) neighbors1.add(e.s); });
           neighbors1.forEach(neighborId => visible.add(neighborId));
-
           if (n.mode === 'long_range') {
-            neighbors1.forEach(neighborId => {
-              edges.forEach(e => {
-                if (e.s === neighborId) visible.add(e.t);
-                if (e.t === neighborId) visible.add(e.s);
-              });
-            });
+            neighbors1.forEach(neighborId => { edges.forEach(e => { if (e.s === neighborId) visible.add(e.t); if (e.t === neighborId) visible.add(e.s); }); });
           }
         }
       });
@@ -269,26 +175,18 @@
       return rate;
     };
 
-    const getLevelName = (level) => {
-      if (level === 1) return 'ブルーシート'; if (level === 2) return 'トタン屋根'; if (level === 3) return 'プレハブ'; return '';
-    };
+    const getLevelName = (level) => { if (level === 1) return 'ブルーシート'; if (level === 2) return 'トタン屋根'; if (level === 3) return 'プレハブ'; return ''; };
 
     const spawnItem = (mapData) => {
       const { nodes, edges } = mapData;
       let x, y, valid = false, attempts = 0;
-      while (!valid && attempts < 100) {
-        x = 100 + Math.random() * 700; y = 100 + Math.random() * 400;
-        valid = nodes.every(n => Math.sqrt(Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2)) > 70);
-        attempts++;
-      }
+      while (!valid && attempts < 100) { x = 100 + Math.random() * 700; y = 100 + Math.random() * 400; valid = nodes.every(n => Math.sqrt(Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2)) > 70); attempts++; }
       if (!valid) return;
       const newId = Math.max(...nodes.map(n => n.id)) + 1;
       const itemType = Object.keys(CHIP_TYPES)[Math.floor(Math.random() * Object.keys(CHIP_TYPES).length)];
       const newItem = { id: newId, x, y, owner: 0, energy: 5, maxEnergy: 5, generation: 0, type: 'item', level: 1, mode: 'normal', item: itemType };
       nodes.push(newItem);
-      const potentialEdges = nodes.filter(n => n.id !== newId)
-        .map(n => ({ t: n.id, dist: Math.sqrt(Math.pow(newItem.x - n.x, 2) + Math.pow(newItem.y - n.y, 2)), n }))
-        .filter(e => e.dist < 250).sort((a, b) => a.dist - b.dist);
+      const potentialEdges = nodes.filter(n => n.id !== newId).map(n => ({ t: n.id, dist: Math.sqrt(Math.pow(newItem.x - n.x, 2) + Math.pow(newItem.y - n.y, 2)), n })).filter(e => e.dist < 250).sort((a, b) => a.dist - b.dist);
       let connections = 0;
       for (const edge of potentialEdges) {
         if (connections >= 2) break; 
@@ -297,9 +195,7 @@
           const e_n1 = nodes.find(n => n.id === e.s); const e_n2 = nodes.find(n => n.id === e.t);
           if (e_n1 && e_n2 && intersects(newItem, edge.n, e_n1, e_n2)) { hasIntersection = true; break; }
         }
-        if (!hasIntersection) {
-          edges.push({ s: edge.t, t: newItem.id, isOneWay: Math.random() < 0.4 }); connections++;
-        }
+        if (!hasIntersection) { edges.push({ s: edge.t, t: newItem.id, isOneWay: Math.random() < 0.4 }); connections++; }
       }
     };
 
@@ -309,20 +205,13 @@
       else if (playerCount === 3) bases.push({ x: 450, y: 100 }, { x: 200, y: 450 }, { x: 700, y: 450 });
       else bases.push({ x: 150, y: 150 }, { x: 750, y: 150 }, { x: 150, y: 450 }, { x: 750, y: 450 });
 
-      for (let i = 1; i <= playerCount; i++) {
-        nodes.push({ id: i, x: bases[i-1].x, y: bases[i-1].y, owner: i, energy: 100, maxEnergy: 200, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' });
-      }
+      for (let i = 1; i <= playerCount; i++) nodes.push({ id: i, x: bases[i-1].x, y: bases[i-1].y, owner: i, energy: 100, maxEnergy: 200, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' });
 
       let idCounter = 5; 
       for (let i = 0; i < 12 + (playerCount * 2); i++) {
         let x, y, valid = false, attempts = 0;
-        while (!valid && attempts < 200) {
-          x = 100 + Math.random() * 700; y = 100 + Math.random() * 400;
-          valid = nodes.every(n => Math.sqrt(Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2)) > 75);
-          attempts++;
-        }
-        const isDump = i < 2; 
-        let shobaType = 'bench', energy = 0, maxEnergy = 0, generation = 0;
+        while (!valid && attempts < 200) { x = 100 + Math.random() * 700; y = 100 + Math.random() * 400; valid = nodes.every(n => Math.sqrt(Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2)) > 75); attempts++; }
+        const isDump = i < 2; let shobaType = 'bench', energy = 0, maxEnergy = 0, generation = 0;
         if (isDump) { shobaType = 'dump'; energy = 10; maxEnergy = 500; generation = 0; } 
         else {
           const rand = Math.random();
@@ -335,16 +224,12 @@
 
       const edges = [], potentialEdges = [];
       for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          potentialEdges.push({ s: nodes[i].id, t: nodes[j].id, dist: Math.sqrt(Math.pow(nodes[i].x - nodes[j].x, 2) + Math.pow(nodes[i].y - nodes[j].y, 2)), n1: nodes[i], n2: nodes[j] });
-        }
+        for (let j = i + 1; j < nodes.length; j++) potentialEdges.push({ s: nodes[i].id, t: nodes[j].id, dist: Math.sqrt(Math.pow(nodes[i].x - nodes[j].x, 2) + Math.pow(nodes[i].y - nodes[j].y, 2)), n1: nodes[i], n2: nodes[j] });
       }
       potentialEdges.sort((a, b) => a.dist - b.dist);
       for (const edge of potentialEdges) {
-        if (edge.dist > 350) continue; 
-        if (edge.dist > 150 && Math.random() < 0.4) continue;
-        const n1Edges = edges.filter(e => e.s === edge.n1.id || e.t === edge.n1.id).length;
-        const n2Edges = edges.filter(e => e.s === edge.n2.id || e.t === edge.n2.id).length;
+        if (edge.dist > 350) continue; if (edge.dist > 150 && Math.random() < 0.4) continue;
+        const n1Edges = edges.filter(e => e.s === edge.n1.id || e.t === edge.n1.id).length; const n2Edges = edges.filter(e => e.s === edge.n2.id || e.t === edge.n2.id).length;
         if (n1Edges >= 4 || n2Edges >= 4) continue;
         let hasIntersection = false;
         for (const e of edges) {
@@ -355,15 +240,9 @@
       }
 
       const visited = new Set();
-      const dfs = (id) => {
-        if (visited.has(id)) return; visited.add(id);
-        edges.forEach(e => { if (e.s === id) dfs(e.t); if (e.t === id) dfs(e.s); });
-      };
-      dfs(1); 
-      if (visited.size < nodes.length) return generateMap(playerCount); 
-      const mapData = { nodes, edges };
-      spawnItem(mapData);
-      return mapData;
+      const dfs = (id) => { if (visited.has(id)) return; visited.add(id); edges.forEach(e => { if (e.s === id) dfs(e.t); if (e.t === id) dfs(e.s); }); };
+      dfs(1); if (visited.size < nodes.length) return generateMap(playerCount); 
+      const mapData = { nodes, edges }; spawnItem(mapData); return mapData;
     };
 
     const generateCpuCommands = (state, cpuPlayers) => {
@@ -372,11 +251,9 @@
         if (!state.alivePlayers.includes(p)) continue;
         let usedChipsCount = 0; const pChips = [...state.chips[p]];
         const tryUseChip = (chipType, targetId, playerId) => {
-          if (usedChipsCount >= 2) return false;
-          const idx = pChips.indexOf(chipType);
+          if (usedChipsCount >= 2) return false; const idx = pChips.indexOf(chipType);
           if (idx !== -1 && !cmds.some(c => c.type === 'use_chip' && c.chip === chipType && c.targetId === targetId)) {
-            cmds.push({ type: 'use_chip', chip: chipType, targetId, playerId, chipIdx: idx });
-            pChips[idx] = null; usedChipsCount++; return true;
+            cmds.push({ type: 'use_chip', chip: chipType, targetId, playerId, chipIdx: idx }); pChips[idx] = null; usedChipsCount++; return true;
           }
           return false;
         };
@@ -391,32 +268,20 @@
         }
         myNodes.forEach(node => {
           if (node.energy < 10) return; 
-          
           const ignoreOneWay = node.mode === 'long_range';
           const adjNodes = getTargetableNodes(node.id, state.nodes, state.edges, 1, ignoreOneWay);
           const dist2Nodes = getTargetableNodes(node.id, state.nodes, state.edges, 2, ignoreOneWay);
-          
           const threats = adjNodes.filter(n => n.owner !== p && n.owner !== 0 && n.type !== 'item' && n.energy > node.energy + 20);
           if (threats.length > 0 && node.energy >= 10 && Math.random() < 0.7) {
-            threats.sort((a, b) => b.energy - a.energy);
-            cmds.push({ type: 'cut', nodeId: node.id, targetId: threats[0].id, playerId: p });
-            if (pChips.includes('EMP')) tryUseChip('EMP', threats[0].id, p);
-            return; 
+            threats.sort((a, b) => b.energy - a.energy); cmds.push({ type: 'cut', nodeId: node.id, targetId: threats[0].id, playerId: p });
+            if (pChips.includes('EMP')) tryUseChip('EMP', threats[0].id, p); return; 
           }
-          if (node.level < 3 && node.energy >= 60 && threats.length === 0) {
-            cmds.push({ type: 'upgrade', nodeId: node.id, playerId: p }); return; 
-          }
-          const hasAdjTarget = adjNodes.some(n => n.owner !== p);
-          const hasDist2Target = dist2Nodes.some(n => n.owner !== p && !adjNodes.find(an => an.id === n.id));
-          if (node.mode === 'normal') {
-            if (!hasAdjTarget && hasDist2Target && Math.random() < 0.8) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; }
-          } else if (node.mode === 'long_range') {
-            if (hasAdjTarget || !hasDist2Target) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; }
-          }
+          if (node.level < 3 && node.energy >= 60 && threats.length === 0) { cmds.push({ type: 'upgrade', nodeId: node.id, playerId: p }); return; }
+          const hasAdjTarget = adjNodes.some(n => n.owner !== p); const hasDist2Target = dist2Nodes.some(n => n.owner !== p && !adjNodes.find(an => an.id === n.id));
+          if (node.mode === 'normal') { if (!hasAdjTarget && hasDist2Target && Math.random() < 0.8) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; } } 
+          else if (node.mode === 'long_range') { if (hasAdjTarget || !hasDist2Target) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; } }
           if (node.energy < 20) return; 
-          const hops = node.mode === 'long_range' ? 2 : 1;
-          const targets = hops === 1 ? adjNodes : dist2Nodes;
-          const validTargets = targets.filter(n => n.owner !== p);
+          const hops = node.mode === 'long_range' ? 2 : 1; const targets = hops === 1 ? adjNodes : dist2Nodes; const validTargets = targets.filter(n => n.owner !== p);
           if (validTargets.length > 0) {
             const scoredTargets = validTargets.map(t => {
               let score = 0;
@@ -426,15 +291,12 @@
               if (node.energy > requiredEnergy) score += 200; 
               return { target: t, score };
             });
-            scoredTargets.sort((a, b) => b.score - a.score);
-            const bestTarget = scoredTargets[0].target;
-            let amount = Math.floor(node.energy * 0.5);
-            let required = bestTarget.energy + 5;
+            scoredTargets.sort((a, b) => b.score - a.score); const bestTarget = scoredTargets[0].target;
+            let amount = Math.floor(node.energy * 0.5); let required = bestTarget.energy + 5;
             if (hops === 2) required = Math.ceil(required / (1 - getLossRate(node.level, state.weather)));
             if (node.energy > required && required > amount) amount = required;
             if (pChips.includes('ATK_BOOST') && bestTarget.type !== 'item' && bestTarget.energy > amount) tryUseChip('ATK_BOOST', node.id, p);
-            let isStealth = false;
-            if (pChips.includes('STEALTH') && bestTarget.owner !== 0) if (tryUseChip('STEALTH', undefined, p)) isStealth = true;
+            let isStealth = false; if (pChips.includes('STEALTH') && bestTarget.owner !== 0) if (tryUseChip('STEALTH', undefined, p)) isStealth = true;
             cmds.push({ type: 'move', nodeId: node.id, targetId: bestTarget.id, amount, playerId: p, isStealth });
           }
         });
@@ -667,8 +529,6 @@
       const [amountSlider, setAmountSlider] = useState(0);
       const [selectedChip, setSelectedChip] = useState(null);
       
-      const [copiedText, setCopiedText] = useState(false);
-      
       const [aiAdvice, setAiAdvice] = useState(null);
       const [isAiLoading, setIsAiLoading] = useState(false);
       const [showAiPanel, setShowAiPanel] = useState(false);
@@ -676,11 +536,9 @@
       const canvasRef = useRef(null);
       const animRef = useRef({ active: false, progress: 0, data: null });
       
-      const peerConnection = useRef(null);
+      // PeerJS用Ref
+      const peerRef = useRef(null);
       const dataChannel = useRef(null);
-      const [localSdp, setLocalSdp] = useState('');
-      const [remoteSdp, setRemoteSdp] = useState('');
-      const [signalingStep, setSignalingStep] = useState(0);
 
       const stateRef = useRef(gameState);
       const phaseRef = useRef(phase);
@@ -711,29 +569,24 @@
         loadImages();
       }, []);
 
-      const encodeSDP = (obj) => btoa(JSON.stringify(obj));
-      const decodeSDP = (str) => JSON.parse(atob(str));
-
-      const copyToClipboard = (text) => {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        document.body.appendChild(textArea);
-        textArea.select();
-        try { document.execCommand('copy'); setCopiedText(true); setTimeout(() => setCopiedText(false), 2000); } 
-        catch (err) { console.error(err); }
-        document.body.removeChild(textArea);
-      };
-
-      const setupDataChannel = (dc) => {
-        dc.onopen = () => {
-          setSignalingStep(3); setPhase('WAITING_ROOM');
-          if (gameModeRef.current === 'CLIENT') sendMessage({ type: 'JOIN_REQ', uid: myUid });
-        };
-        dc.onmessage = (e) => handleNetworkMessage(JSON.parse(e.data));
+      const setupDataChannel = (conn) => {
+        dataChannel.current = conn;
+        conn.on('open', () => {
+          setPhase('WAITING_ROOM');
+          if (gameModeRef.current === 'CLIENT') {
+            sendMessage({ type: 'JOIN_REQ', uid: myUid });
+          }
+        });
+        conn.on('data', (data) => {
+          const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+          handleNetworkMessage(parsed);
+        });
       };
 
       const sendMessage = (msg) => {
-        if (dataChannel.current && dataChannel.current.readyState === 'open') dataChannel.current.send(JSON.stringify(msg));
+        if (dataChannel.current && dataChannel.current.open) {
+          dataChannel.current.send(msg);
+        }
       };
 
       const handleNetworkMessage = (data) => {
@@ -763,32 +616,59 @@
         }
       };
 
-      const startHosting = async (pCount) => {
-        setGameMode('HOST'); setMyPlayerNum(1); setSignalingStep(1);
-        setGameData({ hostUid: myUid, status: 'WAITING', playerCount: pCount, players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [], commands: {}, turnReady: {} });
-        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-        peerConnection.current = pc;
-        const dc = pc.createDataChannel('gameData'); dataChannel.current = dc; setupDataChannel(dc);
-        pc.onicecandidate = (e) => { if (!e.candidate) setLocalSdp(encodeSDP(pc.localDescription)); };
-        const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
+      const startHosting = (pCount) => {
+        setGameMode('HOST');
+        setMyPlayerNum(1);
+        setErrorMsg('');
+        setPhase('WAITING_ROOM'); // 接続確立まで一旦待機画面へ
+
+        const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
+        setRoomId(newRoomId);
+        
+        const peer = new Peer(`homeless-wars-${newRoomId}`);
+        peerRef.current = peer;
+
+        peer.on('open', (id) => {
+          const initialGameData = {
+            hostUid: myUid, status: 'WAITING', playerCount: pCount,
+            players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [],
+            commands: {}, turnReady: {}
+          };
+          setGameData(initialGameData);
+        });
+
+        peer.on('connection', (conn) => {
+          setupDataChannel(conn);
+        });
+
+        peer.on('error', (err) => {
+          setErrorMsg('通信サーバーとの接続に失敗しました。');
+          setPhase('SETUP');
+          console.error(err);
+        });
       };
 
-      const acceptAnswer = async () => {
-        try { await peerConnection.current.setRemoteDescription(decodeSDP(remoteSdp)); } 
-        catch (err) { alert("回答コードが正しくありません。"); console.error(err); }
-      };
+      const joinRoom = (rid) => {
+        if (!rid) return;
+        setErrorMsg('');
+        const targetId = rid.toUpperCase();
+        setRoomId(targetId);
+        setGameMode('CLIENT');
+        setPhase('WAITING_ROOM'); 
 
-      const prepareJoining = () => { setGameMode('CLIENT'); setSignalingStep(1); };
+        const peer = new Peer();
+        peerRef.current = peer;
 
-      const createAnswer = async () => {
-        try {
-          setSignalingStep(2);
-          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }); peerConnection.current = pc;
-          pc.ondatachannel = (e) => { dataChannel.current = e.channel; setupDataChannel(e.channel); };
-          pc.onicecandidate = (e) => { if (!e.candidate) setLocalSdp(encodeSDP(pc.localDescription)); };
-          await pc.setRemoteDescription(decodeSDP(remoteSdp));
-          const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
-        } catch (err) { alert("招待コードが正しくありません。"); setSignalingStep(1); console.error(err); }
+        peer.on('open', () => {
+          const conn = peer.connect(`homeless-wars-${targetId}`);
+          setupDataChannel(conn);
+        });
+
+        peer.on('error', (err) => {
+          setErrorMsg('ルームが見つからないか、通信に失敗しました。');
+          setPhase('SETUP');
+          console.error(err);
+        });
       };
 
       const checkTurnResolve = (currentGData, currentState) => {
@@ -844,7 +724,7 @@
         let animationFrameId;
         const render = (time) => {
           const ctx = canvasRef.current?.getContext('2d');
-          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM' && phase !== 'TUTORIAL' && phase !== 'TUTORIAL_CLEAR') {
+          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM' && phase !== 'TUTORIAL' && phase !== 'TUTORIAL_CLEAR' && phase !== 'TUTORIAL_SLIDES') {
             drawCanvas(ctx, gameState, playerCommands, [], uiState, hoveredNode, animRef.current, time, phase);
           }
           animationFrameId = requestAnimationFrame(render);
@@ -853,26 +733,15 @@
         return () => cancelAnimationFrame(animationFrameId);
       }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum]); 
 
-      // --- ゲームスタート制御 ---
       const startPlayableTutorial = (stageId) => {
-        setGameMode('TUTORIAL');
-        setTutorialStage(stageId);
-        setMyPlayerNum(1);
-
+        setGameMode('TUTORIAL'); setTutorialStage(stageId); setMyPlayerNum(1);
         const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === stageId);
         if (!stageDef) return;
         const setupData = stageDef.setup();
         const alivePlayers = Array.from({length: setupData.playerCount}, (_, i) => i + 1);
         const chips = {}; for (let i=1; i<=setupData.playerCount; i++) chips[i] = [];
-
-        const initialState = {
-          nodes: setupData.nodes, edges: setupData.edges, turn: 1, weather: 'sunny', forecast: 'sunny',
-          trashDays: [], playerCount: setupData.playerCount, alivePlayers, winner: null, isGameOver: false, chips
-        };
-        
-        setGameState(initialState);
-        setPlayerCommands([]);
-        setPhase('INPUT');
+        const initialState = { nodes: setupData.nodes, edges: setupData.edges, turn: 1, weather: 'sunny', forecast: 'sunny', trashDays: [], playerCount: setupData.playerCount, alivePlayers, winner: null, isGameOver: false, chips };
+        setGameState(initialState); setPlayerCommands([]); setPhase('INPUT');
       };
 
       const startSoloGame = (playerCount) => {
@@ -927,9 +796,8 @@
         finally { setIsAiLoading(false); }
       };
 
-      // --- インタラクション ---
       const handleCanvasClick = (e) => {
-        if (phase !== 'INPUT' || !gameState?.alivePlayers?.includes(myPlayerNum)) return;
+        if (phase !== 'INPUT' || !gameState.alivePlayers.includes(myPlayerNum)) return;
         const rect = canvasRef.current.getBoundingClientRect();
         const x = e.clientX - rect.left; const y = e.clientY - rect.top;
         const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
@@ -1385,7 +1253,6 @@
         );
       };
 
-      // --- スライド式ドキュメント ---
       if (phase === 'TUTORIAL_SLIDES') {
         const slide = TUTORIAL_SLIDES[tutorialPage];
         return (
@@ -1459,15 +1326,15 @@
                   <h3 className="text-xl text-green-400 font-bold">チュートリアル</h3>
                   <p className="text-slate-400 mt-2 text-xs text-center">基本を学びながら<br/>5つのステージをクリア</p>
                 </button>
-                <button onClick={() => setGameMode('SOLO')} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
+                <button onClick={() => startSoloGame(2)} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
                   <span className="text-5xl mb-3">👤</span>
                   <h3 className="text-xl text-white font-bold">ソロプレイ</h3>
                   <p className="text-slate-400 mt-2 text-xs text-center">AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
                 </button>
                 <button onClick={() => setGameMode('MULTI')} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
                   <span className="text-5xl mb-3">🌐</span>
-                  <h3 className="text-xl text-sky-400 font-bold">ローカル通信対戦</h3>
-                  <p className="text-slate-400 mt-2 text-xs text-center">2台のPCを直接繋いで<br/>サーバーなしで対戦する</p>
+                  <h3 className="text-xl text-sky-400 font-bold">簡単ローカル通信</h3>
+                  <p className="text-slate-400 mt-2 text-xs text-center">ルームIDを入力するだけで<br/>別々のPCですぐ対戦</p>
                 </button>
               </div>
             ) : gameMode === 'SOLO' ? (
@@ -1480,12 +1347,12 @@
                 </div>
                 <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-4">◀ モード選択へ戻る</button>
               </div>
-            ) : signalingStep === 0 ? (
+            ) : (
               <div className="flex flex-col items-center mt-4">
                 <div className="flex gap-8">
                   <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center w-80">
                     <h3 className="text-xl text-yellow-400 font-bold mb-4">⛺ 部屋を作る (ホスト)</h3>
-                    <p className="text-slate-400 text-sm text-center mb-6">参加人数を選んで<br/>招待コードを発行します。</p>
+                    <p className="text-slate-400 text-sm text-center mb-6">参加人数を選んで<br/>ルームIDを発行します。</p>
                     <div className="flex gap-2">
                       {[2, 3, 4].map(num => (
                         <button key={num} onClick={() => startHosting(num)} className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded transition-colors">{num} 派閥</button>
@@ -1494,81 +1361,15 @@
                   </div>
                   <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center w-80">
                     <h3 className="text-xl text-sky-400 font-bold mb-4">🍶 部屋に参加 (ゲスト)</h3>
-                    <p className="text-slate-400 text-sm text-center mb-6">ホストから受け取った<br/>招待コードで参加します。</p>
-                    <button onClick={prepareJoining} className="px-8 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-colors w-full">参加準備へ</button>
+                    <p className="text-slate-400 text-sm text-center mb-6">ホストから受け取った<br/>4桁のIDを入力します。</p>
+                    <div className="flex gap-3 w-full px-4">
+                      <input type="text" placeholder="ルームID" value={joinInput} onChange={(e) => setJoinInput(e.target.value)} className="flex-1 px-3 py-2 rounded bg-slate-900 text-white border border-slate-600 uppercase font-mono text-center tracking-widest text-lg" maxLength={4} />
+                      <button onClick={() => joinRoom(joinInput)} disabled={!joinInput} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold rounded transition-colors">参加</button>
+                    </div>
+                    {errorMsg && <p className="text-red-400 text-sm mt-3 font-bold">{errorMsg}</p>}
                   </div>
                 </div>
                 <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-8">◀ モード選択へ戻る</button>
-              </div>
-            ) : gameMode === 'HOST' ? (
-              <div className="bg-slate-800/90 p-8 rounded-xl border border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)] backdrop-blur flex flex-col items-center mt-4 w-full max-w-2xl relative">
-                <h3 className="text-2xl text-yellow-400 font-bold mb-4">ホスト接続待機中...</h3>
-                <p className="text-slate-300 text-sm mb-6 text-center leading-relaxed">
-                  以下の「招待コード」をコピーして、対戦相手に渡してください。<br/>
-                  相手が生成した「回答コード」を下の入力欄に貼り付けると接続が完了します。
-                </p>
-                
-                <div className="w-full mb-8 relative">
-                  <div className="flex justify-between items-end mb-2">
-                    <label className="text-sm font-bold text-slate-400">あなたの招待コード (相手に渡す)</label>
-                    <button onClick={() => copyToClipboard(localSdp)} className={`text-xs px-3 py-1 rounded transition-colors ${copiedText ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
-                      {copiedText ? '✅ コピー完了' : '📋 コピーする'}
-                    </button>
-                  </div>
-                  <textarea readOnly value={localSdp || 'コード生成中...'} className="w-full h-24 bg-slate-900 text-slate-300 p-3 rounded border border-slate-600 text-xs font-mono focus:outline-none" />
-                  {!localSdp && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50 rounded mt-6"><span className="animate-spin text-2xl">⏳</span></div>}
-                </div>
-
-                <div className="w-full mb-6">
-                  <label className="text-sm font-bold text-sky-400 mb-2 block">相手からの回答コード を入力</label>
-                  <textarea value={remoteSdp} onChange={e => setRemoteSdp(e.target.value)} placeholder="ここに回答コードを貼り付けます" className="w-full h-24 bg-slate-900 text-white p-3 rounded border border-sky-500/50 text-xs font-mono focus:outline-none focus:border-sky-400" />
-                </div>
-                
-                <button onClick={acceptAnswer} disabled={!remoteSdp} className="px-10 py-3 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold rounded-lg shadow-lg text-lg w-full">
-                  接続を確立する
-                </button>
-                <button onClick={() => setSignalingStep(0)} className="text-slate-400 hover:text-white underline mt-6 text-sm">◀ 戻る</button>
-              </div>
-            ) : (
-              <div className="bg-slate-800/90 p-8 rounded-xl border border-sky-500/50 shadow-[0_0_20px_rgba(14,165,233,0.2)] backdrop-blur flex flex-col items-center mt-4 w-full max-w-2xl relative">
-                <h3 className="text-2xl text-sky-400 font-bold mb-4">部屋に参加</h3>
-                
-                {signalingStep === 1 ? (
-                  <>
-                    <p className="text-slate-300 text-sm mb-6 text-center leading-relaxed">
-                      ホストから受け取った「招待コード」を貼り付けてください。<br/>
-                      回答コードを生成します。
-                    </p>
-                    <div className="w-full mb-8">
-                      <label className="text-sm font-bold text-yellow-400 mb-2 block">ホストの招待コード を入力</label>
-                      <textarea value={remoteSdp} onChange={e => setRemoteSdp(e.target.value)} placeholder="ここに招待コードを貼り付けます" className="w-full h-32 bg-slate-900 text-white p-3 rounded border border-yellow-500/50 text-xs font-mono focus:outline-none focus:border-yellow-400" />
-                    </div>
-                    <button onClick={createAnswer} disabled={!remoteSdp} className="px-10 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 disabled:opacity-50 text-white font-bold rounded-lg shadow-lg text-lg w-full">
-                      回答コードを生成
-                    </button>
-                    <button onClick={() => setSignalingStep(0)} className="text-slate-400 hover:text-white underline mt-6 text-sm">◀ 戻る</button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-slate-300 text-sm mb-6 text-center leading-relaxed">
-                      生成された「回答コード」をコピーしてホストに渡してください。<br/>
-                      ホストが接続を確立するまでこのままお待ちください。
-                    </p>
-                    <div className="w-full mb-8 relative">
-                      <div className="flex justify-between items-end mb-2">
-                        <label className="text-sm font-bold text-slate-400">あなたの回答コード (ホストに渡す)</label>
-                        <button onClick={() => copyToClipboard(localSdp)} className={`text-xs px-3 py-1 rounded transition-colors ${copiedText ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
-                          {copiedText ? '✅ コピー完了' : '📋 コピーする'}
-                        </button>
-                      </div>
-                      <textarea readOnly value={localSdp || 'コード生成中...'} className="w-full h-32 bg-slate-900 text-slate-300 p-3 rounded border border-slate-600 text-xs font-mono focus:outline-none" />
-                      {!localSdp && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50 rounded mt-6"><span className="animate-spin text-2xl">⏳</span></div>}
-                    </div>
-                    <div className="text-sky-300 animate-pulse text-lg flex items-center gap-2 mt-4 font-bold tracking-widest">
-                      <span className="animate-spin inline-block">⏳</span> 接続確立を待機中...
-                    </div>
-                  </>
-                )}
               </div>
             )}
           </div>
@@ -1582,7 +1383,10 @@
             <p className="text-xl mb-10 text-slate-300">P2Pネットワークによる直接通信が確立されました。</p>
             
             <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur w-96 mb-10">
-              <h3 className="text-lg text-slate-300 mb-4 font-bold border-b border-slate-600 pb-2">参加メンバー ({gameData?.playerUids?.length} / {gameData?.playerCount})</h3>
+              <h3 className="text-lg text-slate-300 mb-4 font-bold border-b border-slate-600 pb-2 flex justify-between">
+                <span>参加メンバー ({gameData?.playerUids?.length} / {gameData?.playerCount})</span>
+                <span className="font-mono text-sky-400">ID: {roomId}</span>
+              </h3>
               <ul className="space-y-3">
                 {gameData?.playerUids?.map((uid, i) => (
                   <li key={uid} className="bg-slate-900/50 px-4 py-3 rounded-lg flex justify-between items-center border border-slate-700">
@@ -1657,7 +1461,7 @@
             </div>
             
             <div className="flex flex-col items-end gap-2">
-              {gameMode === 'MULTI' && <div className="text-green-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-green-600/50 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>P2P CONNECTED</div>}
+              {gameMode === 'MULTI' && <div className="text-green-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-green-600/50 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>ROOM: {roomId}</div>}
               <div className="flex items-center gap-4 bg-slate-800 border border-slate-600 px-5 py-2 rounded-full shadow-lg">
                 <div className="flex items-center gap-2 text-slate-300">
                   <span className="text-sky-400">📅</span> <span className="font-bold text-lg">{gameState.turn}日目 ({DAYS[currentDayIndex]})</span>
