@@ -22,7 +22,6 @@
     const COLORS = {
       bg: '#0f172a', edge: '#cbd5e1', neutral: '#64748b', dump: '#84cc16',     
       players: ['#64748b', '#0ea5e9', '#ef4444', '#22c55e', '#eab308'],
-      playerGlows: ['rgba(0,0,0,0)', 'rgba(14, 165, 233, 0.5)', 'rgba(239, 68, 68, 0.5)', 'rgba(34, 197, 94, 0.5)', 'rgba(234, 179, 8, 0.5)'],
       highlight: '#facc15', long_range: '#c084fc'
     };
 
@@ -85,9 +84,7 @@
 
     const renderWeatherIcon = (weather, sizeClass='w-6 h-6', imagesObj={}) => {
       const key = `weather_${weather}`;
-      if (imagesObj[key]) {
-        return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block`} />;
-      }
+      if (imagesObj[key]) return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block`} />;
       if (weather === 'typhoon') return <span className="text-yellow-400">⛈️</span>;
       if (weather === 'cold') return <span className="text-cyan-300">❄️</span>;
       return <span className="text-orange-400">☀️</span>;
@@ -104,33 +101,35 @@
 
     const getDistance = (n1, n2) => Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
 
-    const canMove = (id1, id2, edges, cutEdges = []) => {
+    // ★遠隔モード時は一方通行を無視(ignoreOneWay)できるように引数を追加
+    const canMove = (id1, id2, edges, cutEdges = [], ignoreOneWay = false) => {
       return edges.some(e => {
         const isCut = cutEdges.some(ce => (ce.s === e.s && ce.t === e.t) || (ce.s === e.t && ce.t === e.s));
         if (isCut) return false;
-        if (e.isOneWay) return e.s === id1 && e.t === id2;
+        if (e.isOneWay && !ignoreOneWay) return e.s === id1 && e.t === id2;
         return (e.s === id1 && e.t === id2) || (e.s === id2 && e.t === id1);
       });
     };
 
-    const getHopDistance = (id1, id2, edges, cutEdges = []) => {
+    const getHopDistance = (id1, id2, edges, cutEdges = [], ignoreOneWay = false) => {
       if (id1 === id2) return 0;
-      if (canMove(id1, id2, edges, cutEdges)) return 1;
-      const neighbors = edges.map(e => {
-        if (e.s === id1 && !e.isOneWay) return e.t;
-        if (e.s === id1 && e.isOneWay) return e.t;
-        if (e.t === id1 && !e.isOneWay) return e.s;
-        return null;
-      }).filter(id => id !== null && canMove(id1, id, edges, cutEdges));
+      if (canMove(id1, id2, edges, cutEdges, ignoreOneWay)) return 1;
+      const neighbors = [];
+      edges.forEach(e => {
+        const isCut = cutEdges.some(ce => (ce.s === e.s && ce.t === e.t) || (ce.s === e.t && ce.t === e.s));
+        if (isCut) return;
+        if (e.s === id1) neighbors.push(e.t);
+        else if (e.t === id1 && (!e.isOneWay || ignoreOneWay)) neighbors.push(e.s);
+      });
       
       for (const n of neighbors) {
-        if (canMove(n, id2, edges, cutEdges)) return 2;
+        if (canMove(n, id2, edges, cutEdges, ignoreOneWay)) return 2;
       }
       return Infinity;
     };
 
-    const getTargetableNodes = (startId, nodes, edges, maxHops) => {
-      return nodes.filter(n => n.id !== startId && getHopDistance(startId, n.id, edges) <= maxHops);
+    const getTargetableNodes = (startId, nodes, edges, maxHops, ignoreOneWay = false) => {
+      return nodes.filter(n => n.id !== startId && getHopDistance(startId, n.id, edges, [], ignoreOneWay) <= maxHops);
     };
 
     const getVisibleNodes = (playerId, nodes, edges) => {
@@ -287,8 +286,11 @@
         }
         myNodes.forEach(node => {
           if (node.energy < 10) return; 
-          const adjNodes = getTargetableNodes(node.id, state.nodes, state.edges, 1);
-          const dist2Nodes = getTargetableNodes(node.id, state.nodes, state.edges, 2);
+          
+          const ignoreOneWay = node.mode === 'long_range';
+          const adjNodes = getTargetableNodes(node.id, state.nodes, state.edges, 1, ignoreOneWay);
+          const dist2Nodes = getTargetableNodes(node.id, state.nodes, state.edges, 2, ignoreOneWay);
+          
           const threats = adjNodes.filter(n => n.owner !== p && n.owner !== 0 && n.type !== 'item' && n.energy > node.energy + 20);
           if (threats.length > 0 && node.energy >= 10 && Math.random() < 0.7) {
             threats.sort((a, b) => b.energy - a.energy);
@@ -384,9 +386,12 @@
             node.energy += added; if (added > 0) animData.mines.push({ nodeId: node.id, amount: added });
           }
         }
+        // ★ 誰の陣地にもなっていないゴミ捨て場にはエネルギーを追加しない
         if (isTrashDay && node.type === 'dump') {
-           const added = Math.min(node.maxEnergy - node.energy, 80);
-           node.energy += added; if (added > 0) animData.trashBonuses.push({ nodeId: node.id, amount: added });
+           if (node.owner !== 0) {
+             const added = Math.min(node.maxEnergy - node.energy, 80);
+             node.energy += added; if (added > 0) animData.trashBonuses.push({ nodeId: node.id, amount: added });
+           }
         }
       });
 
@@ -403,7 +408,10 @@
           let sentAmount = req.amount; if (totalReq > node.energy) sentAmount = Math.floor(req.amount * (node.energy / totalReq));
           node.energy -= sentAmount;
           let baseReceived = sentAmount; if (activeAtkBoosts.has(req.nodeId)) baseReceived *= 2;
-          const hops = getHopDistance(node.id, req.targetId, next.edges, cutEdges);
+          
+          // ★ 遠隔時は一方通行無視
+          const hops = getHopDistance(node.id, req.targetId, next.edges, cutEdges, node.mode === 'long_range');
+          
           let receivedAmount = 0;
           if (hops === 1) { receivedAmount = baseReceived; } 
           else if (hops === 2) { let lossRate = activeBoosts.has(req.playerId) ? 0 : getLossRate(node.level, state.weather); receivedAmount = Math.floor(baseReceived * (1 - lossRate)); }
@@ -411,27 +419,116 @@
         });
       });
 
+      // ★ 新しい戦闘・占領ロジック
       next.nodes.forEach(node => {
         const nodeInflows = inflows[node.id];
-        const forces = []; for(let i=1; i<=state.playerCount; i++) if(nodeInflows[i] > 0) forces.push({ p: i, f: nodeInflows[i] });
-        if(forces.length === 0) return;
-        forces.sort((a, b) => b.f - a.f);
-        let attacker = forces[0].p, topForce = forces[0].f, sumOthers = 0;
-        for(let i=1; i<forces.length; i++) sumOthers += forces[i].f;
-        let finalForce = topForce - sumOthers;
-        let clashAmount = forces.length > 1 ? sumOthers * 2 + 10 : 0;
-        if (forces.length === 1 && node.owner !== attacker && node.owner !== 0) clashAmount = topForce;
+        const originalEnergy = node.energy;
+        const originalOwner = node.owner;
 
-        animData.combats.push({ nodeId: node.id, force: finalForce > 0 ? finalForce : 0, attacker: finalForce > 0 ? attacker : 0, clashAmount });
+        let defEnergy = node.energy;
+        
+        // 持ち主の流入は防衛力（または回復）に加算
+        if (node.owner !== 0 && nodeInflows[node.owner] > 0) {
+          defEnergy += nodeInflows[node.owner];
+          nodeInflows[node.owner] = 0; 
+        }
 
-        if (finalForce > 0) {
-          if (node.owner === attacker) { node.energy = Math.min(node.maxEnergy, node.energy + finalForce); } 
-          else {
-            node.energy -= finalForce;
-            if (node.energy <= 0 && node.type === 'item') { next.chips[attacker].push(node.item); animData.items.push({ x: node.x, y: node.y, item: node.item, owner: attacker }); node.isCollected = true; node.energy = 0; } 
-            else if (node.energy < 0) { node.owner = attacker; node.energy = Math.abs(node.energy); if (node.energy > node.maxEnergy) node.energy = node.maxEnergy; animData.captures.push({ nodeId: node.id, newOwner: attacker }); } 
-            else if (node.energy === 0) { node.owner = 0; node.mode = 'normal'; animData.captures.push({ nodeId: node.id, newOwner: 0 }); }
+        let attackers = [];
+        for(let i=1; i<=state.playerCount; i++) {
+          if(nodeInflows[i] > 0) attackers.push({ p: i, f: nodeInflows[i] });
+        }
+        
+        if(attackers.length === 0) {
+          // 攻撃者がいない場合、持ち主の回復だけ適用して終了
+          if (defEnergy !== originalEnergy) {
+            node.energy = Math.min(node.maxEnergy, defEnergy);
+            animData.combats.push({ nodeId: node.id, force: node.energy - originalEnergy, attacker: node.owner, clashAmount: 0 });
           }
+          return;
+        }
+
+        // アニメーション表示用の総激突量
+        let clashAmount = 0;
+        if (attackers.length > 1) {
+           clashAmount = attackers.reduce((sum, a) => sum + a.f, 0) + (defEnergy > 0 ? 10 : 0);
+        } else if (attackers.length === 1 && node.owner !== attackers[0].p && node.owner !== 0) {
+           clashAmount = attackers[0].f;
+        }
+
+        // ★ ランダムに交互に防衛力を削る
+        while (defEnergy > 0 && attackers.length > 0) {
+            const idx = Math.floor(Math.random() * attackers.length);
+            attackers[idx].f -= 1;
+            defEnergy -= 1;
+            if (attackers[idx].f <= 0) {
+                attackers.splice(idx, 1);
+            }
+        }
+
+        if (defEnergy > 0) {
+            // 防衛成功
+            node.energy = Math.min(node.maxEnergy, defEnergy);
+        } else {
+            // ★ 防衛力0。残存エネルギーが多い方が陣地を獲得し、差分が新しいエネルギーになる
+            attackers.sort((a, b) => b.f - a.f);
+            
+            if (attackers.length === 0) {
+                // 全滅・相打ち
+                if (node.type === 'item') {
+                    node.energy = 0;
+                } else {
+                    node.owner = 0;
+                    node.energy = 0;
+                    node.mode = 'normal';
+                    animData.captures.push({ nodeId: node.id, newOwner: 0 });
+                }
+            } else {
+                const top = attackers[0];
+                const secondForce = attackers.length > 1 ? attackers[1].f : 0;
+                const diff = top.f - secondForce; // 差分
+                
+                if (diff > 0) {
+                    if (node.type === 'item') {
+                        next.chips[top.p].push(node.item);
+                        animData.items.push({ x: node.x, y: node.y, item: node.item, owner: top.p });
+                        node.isCollected = true; 
+                        node.energy = 0;
+                    } else {
+                        if (node.owner !== top.p) {
+                            node.owner = top.p;
+                            node.mode = 'normal';
+                            animData.captures.push({ nodeId: node.id, newOwner: top.p });
+                        }
+                        node.energy = Math.min(node.maxEnergy, diff);
+                    }
+                } else {
+                    // 同点で相打ちの場合
+                    if (node.type !== 'item') {
+                        node.owner = 0;
+                        node.energy = 0;
+                        node.mode = 'normal';
+                        animData.captures.push({ nodeId: node.id, newOwner: 0 });
+                    }
+                }
+            }
+        }
+
+        // 表示用のアニメーションデータを作成
+        if (!node.isCollected && originalOwner === node.owner) {
+            const eDiff = node.energy - originalEnergy;
+            if (eDiff > 0) {
+                animData.combats.push({ nodeId: node.id, force: eDiff, attacker: node.owner, clashAmount });
+            } else if (eDiff < 0) {
+                animData.combats.push({ nodeId: node.id, force: Math.abs(eDiff), attacker: -1, clashAmount }); // 赤字でマイナス表示
+            } else {
+                animData.combats.push({ nodeId: node.id, force: 0, attacker: 0, clashAmount });
+            }
+        } else if (!node.isCollected && originalOwner !== node.owner) {
+            if (node.owner === 0) {
+                animData.combats.push({ nodeId: node.id, force: 0, attacker: 0, clashAmount });
+            } else {
+                animData.combats.push({ nodeId: node.id, force: node.energy, attacker: node.owner, clashAmount }); // 獲得した差分エネルギーを表示
+            }
         }
       });
 
@@ -455,7 +552,6 @@
 
     // --- メインコンポーネント ---
     function NodeWars() {
-      // ローカルP2P通信用のランダムなユーザーIDを生成
       const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
 
       const [gameMode, setGameMode] = useState(null); // 'SOLO' | 'HOST' | 'CLIENT'
@@ -463,7 +559,6 @@
       const [joinInput, setJoinInput] = useState('');
       const [errorMsg, setErrorMsg] = useState('');
       
-      // gameData: ホストが管理し、全員に共有する部屋のメタ情報
       const [gameData, setGameData] = useState(null);
       const [myPlayerNum, setMyPlayerNum] = useState(1);
 
@@ -478,9 +573,8 @@
 
       const canvasRef = useRef(null);
       const animRef = useRef({ active: false, progress: 0, data: null });
-      const bc = useRef(null); // BroadcastChannel
+      const bc = useRef(null);
 
-      // 非同期イベント内で最新のStateを参照するためのRef
       const stateRef = useRef(gameState);
       const roomRef = useRef(roomId);
       const phaseRef = useRef(phase);
@@ -493,7 +587,6 @@
       useEffect(() => { gameDataRef.current = gameData; }, [gameData]);
       useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
 
-      // 画像の事前ロード
       useEffect(() => {
         const loadImages = async () => {
           const images = {};
@@ -511,7 +604,6 @@
         loadImages();
       }, []);
 
-      // --- BroadcastChannel (ローカルP2P通信) の設定 ---
       useEffect(() => {
         const channel = new BroadcastChannel('homeless_wars_channel');
         bc.current = channel;
@@ -524,7 +616,6 @@
           const currentPhase = phaseRef.current;
           const gData = gameDataRef.current;
 
-          // ▼ HOST側の処理
           if (gMode === 'HOST') {
             if (data.type === 'JOIN_REQ') {
               if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
@@ -549,9 +640,7 @@
               setGameData(newGameData);
               checkTurnResolve(newGameData, stateRef.current);
             }
-          } 
-          // ▼ CLIENT側の処理
-          else if (gMode === 'CLIENT') {
+          } else if (gMode === 'CLIENT') {
             if (data.type === 'JOIN_ACK' && data.targetUid === myUid) {
               setMyPlayerNum(data.playerNum);
               setGameData(data.gameData);
@@ -567,13 +656,11 @@
             }
           }
         };
-
         return () => channel.close();
       }, []);
 
-      // ホストが全員の入力が揃ったか確認し、シミュレーションを実行する
       const checkTurnResolve = (currentGData, currentState) => {
-        if (phaseRef.current !== 'WAITING_FOR_OTHERS') return; // ホスト自身の入力が終わっているか
+        if (phaseRef.current !== 'WAITING_FOR_OTHERS') return; 
         
         const humanPlayers = Object.values(currentGData.players);
         const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
@@ -590,7 +677,6 @@
           const nextGameData = { ...currentGData, commands: {}, turnReady: {} };
           setGameData(nextGameData);
           
-          // クライアントへブロードキャスト
           bc.current.postMessage({
             type: 'TURN_RESOLVE',
             roomId: roomRef.current,
@@ -623,7 +709,6 @@
         requestAnimationFrame(animate);
       };
 
-      // Canvas描画ループ
       useEffect(() => {
         let animationFrameId;
         const render = (time) => {
@@ -637,7 +722,6 @@
         return () => cancelAnimationFrame(animationFrameId);
       }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum]); 
 
-      // --- ソロプレイの開始 ---
       const startSoloGame = (playerCount) => {
         setGameMode('SOLO');
         setMyPlayerNum(1);
@@ -659,7 +743,6 @@
         setPhase('INPUT');
       };
 
-      // --- ローカルマルチプレイのルーム操作 ---
       const createRoom = (pCount) => {
         setErrorMsg('');
         const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -673,7 +756,6 @@
         };
         setGameData(initialGameData);
         setPhase('WAITING_ROOM');
-        // ブロードキャスト（参加者がリロードした時などに備えて）
         bc.current.postMessage({ type: 'ROOM_UPDATE', roomId: newRoomId, gameData: initialGameData });
       };
 
@@ -684,7 +766,6 @@
         setRoomId(targetId);
         setGameMode('CLIENT');
         bc.current.postMessage({ type: 'JOIN_REQ', roomId: targetId, uid: myUid });
-        // 1秒待ってJOIN_ACKが来なければエラー（ルームが存在しない）
         setTimeout(() => {
           if (phaseRef.current === 'SETUP') setErrorMsg('ルームが見つからないか満員です。');
         }, 1000);
@@ -753,7 +834,9 @@
         } else if (uiState.mode === 'SELECTING_TARGET') {
           const sourceNode = gameState.nodes.find(n => n.id === uiState.nodeId);
           const maxHops = sourceNode.mode === 'long_range' ? 2 : 1;
-          const distHop = getHopDistance(uiState.nodeId, clickedNode?.id, gameState.edges);
+          
+          // ★ターゲット選択時、遠隔なら一方通行を無視
+          const distHop = getHopDistance(uiState.nodeId, clickedNode?.id, gameState.edges, [], sourceNode.mode === 'long_range');
 
           if (clickedNode && distHop > 0 && distHop <= maxHops) {
             if (uiState.actionType === 'move') {
@@ -837,7 +920,8 @@
         playerCommands.forEach(cmd => {
           const node = predicted.find(n => n.id === cmd.nodeId); if (!node) return;
           if (cmd.type === 'move') {
-            node.energy -= cmd.amount; const hops = getHopDistance(cmd.nodeId, cmd.targetId, gameState.edges);
+            node.energy -= cmd.amount; 
+            const hops = getHopDistance(cmd.nodeId, cmd.targetId, gameState.edges, [], node.mode === 'long_range');
             let sent = cmd.amount; if (activeAtkBoosts.has(cmd.nodeId)) sent *= 2;
             let received = sent; if (hops === 2) received = isBoostActive ? sent : Math.floor(sent * (1 - getLossRate(node.level, gameState.weather)));
             inflows[cmd.targetId] += received;
@@ -898,7 +982,8 @@
               const s = state.nodes.find(n => n.id === cmd.nodeId), t = state.nodes.find(n => n.id === cmd.targetId);
               if (s && t) {
                 ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
-                ctx.strokeStyle = getHopDistance(cmd.nodeId, cmd.targetId, state.edges) === 2 ? 'rgba(192, 132, 252, 0.8)' : 'rgba(14, 165, 233, 0.8)'; 
+                const hops = getHopDistance(cmd.nodeId, cmd.targetId, state.edges, [], s.mode === 'long_range');
+                ctx.strokeStyle = hops === 2 ? 'rgba(192, 132, 252, 0.8)' : 'rgba(14, 165, 233, 0.8)'; 
                 ctx.lineWidth = 4; ctx.setLineDash([10, 10]); ctx.lineDashOffset = -(time / 50) % 20; ctx.stroke(); ctx.setLineDash([]);
               }
             }
@@ -969,7 +1054,7 @@
 
         if (ui.mode === 'SELECTING_TARGET') {
           const sNode = state.nodes.find(n => n.id === ui.nodeId); const maxHops = (ui.actionType === 'move' && sNode.mode === 'long_range') ? 2 : 1;
-          getTargetableNodes(ui.nodeId, state.nodes, state.edges, maxHops).forEach(n => {
+          getTargetableNodes(ui.nodeId, state.nodes, state.edges, maxHops, sNode.mode === 'long_range').forEach(n => {
             if (visibleNodes.has(n.id)) { ctx.beginPath(); ctx.arc(n.x, n.y, 40, 0, Math.PI * 2); ctx.fillStyle = 'rgba(250, 204, 21, 0.3)'; ctx.fill(); }
           });
         }
@@ -1039,9 +1124,14 @@
             anim.data.combats.forEach(c => {
               const node = state.nodes.find(n => n.id === c.nodeId); if(!node || !visibleNodes.has(node.id)) return;
               ctx.globalAlpha = 1 - popP;
-              if (c.attacker === 0 || c.force === 0) drawStrokedText(`相殺!`, node.x, node.y - 30 + yOffset, '#94a3b8', 24);
-              else if (c.attacker === node.owner) drawStrokedText(`+${c.force}`, node.x, node.y - 30 + yOffset, '#22c55e', 24);
-              else drawStrokedText(`-${c.force}`, node.x, node.y - 30 + yOffset, '#ef4444', 28);
+              if (c.force === 0) {
+                 drawStrokedText(`相殺!`, node.x, node.y - 30 + yOffset, '#94a3b8', 24);
+              } else if (c.attacker === -1) {
+                 drawStrokedText(`-${c.force}`, node.x, node.y - 30 + yOffset, '#ef4444', 28);
+              } else {
+                 const tColor = c.attacker === myPlayerNum ? '#22c55e' : (COLORS.players[c.attacker] || '#22c55e');
+                 drawStrokedText(`+${c.force}`, node.x, node.y - 30 + yOffset, tColor, 24);
+              }
               ctx.globalAlpha = 1.0;
             });
             anim.data.captures.forEach(cap => {
@@ -1131,7 +1221,7 @@
         const isLong = gameState.nodes.find(n => n.id === uiState.nodeId)?.mode === 'long_range';
         return (
           <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
-            🎯 {uiState.actionType === 'move' ? `対象ショバ（${isLong ? '2マス先まで、ロスあり' : '隣接方向'}）を選択してください` : '切断する対象ショバを選択してください'}
+            🎯 {uiState.actionType === 'move' ? `対象ショバ（${isLong ? '2マス先まで・一方通行無視可' : '隣接方向のみ'}）を選択してください` : '切断する対象ショバを選択してください'}
           </div>
         );
       };
@@ -1323,7 +1413,7 @@
                <div className="absolute top-8 left-1/2 transform -translate-x-1/2 text-white text-xl font-black tracking-widest bg-slate-900/80 border border-yellow-500/50 px-8 py-2 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.3)] z-10">
                  {animRef.current.progress < 0.25 ? 'PHASE 1: 準備 (カット・設備強化)' : 
                   animRef.current.progress < 0.6 ? 'PHASE 2: 輸送 & 襲撃' : 
-                  animRef.current.progress < 0.85 ? 'PHASE 3: 解決 (乱闘・ショバ強奪)' : 'PHASE 4: 資源回収・天候効果'}
+                  animRef.current.progress < 0.85 ? 'PHASE 3: 解決 (乱戦・ショバ強奪)' : 'PHASE 4: 資源回収・天候効果'}
                </div>
             )}
 
