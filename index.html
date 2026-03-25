@@ -10,7 +10,6 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- 超簡単にP2P通信ができる無料ライブラリ「PeerJS」を追加 -->
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body class="bg-slate-900 overflow-hidden text-white">
@@ -509,7 +508,7 @@
     function NodeWars() {
       const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
 
-      const [gameMode, setGameMode] = useState(null); // 'SOLO' | 'HOST' | 'CLIENT' | 'TUTORIAL'
+      const [gameMode, setGameMode] = useState(null); 
       const [roomId, setRoomId] = useState('');
       const [joinInput, setJoinInput] = useState('');
       const [errorMsg, setErrorMsg] = useState('');
@@ -538,7 +537,7 @@
       
       // PeerJS用Ref
       const peerRef = useRef(null);
-      const dataChannel = useRef(null);
+      const connectionsRef = useRef([]); // 複数クライアントへの接続を管理
 
       const stateRef = useRef(gameState);
       const phaseRef = useRef(phase);
@@ -570,10 +569,10 @@
       }, []);
 
       const setupDataChannel = (conn) => {
-        dataChannel.current = conn;
+        connectionsRef.current.push(conn);
         conn.on('open', () => {
-          setPhase('WAITING_ROOM');
           if (gameModeRef.current === 'CLIENT') {
+            setPhase('WAITING_ROOM');
             sendMessage({ type: 'JOIN_REQ', uid: myUid });
           }
         });
@@ -581,12 +580,17 @@
           const parsed = typeof data === 'string' ? JSON.parse(data) : data;
           handleNetworkMessage(parsed);
         });
+        conn.on('close', () => {
+           connectionsRef.current = connectionsRef.current.filter(c => c !== conn);
+        });
       };
 
       const sendMessage = (msg) => {
-        if (dataChannel.current && dataChannel.current.open) {
-          dataChannel.current.send(msg);
-        }
+        connectionsRef.current.forEach(conn => {
+          if (conn && conn.open) {
+            conn.send(JSON.stringify(msg));
+          }
+        });
       };
 
       const handleNetworkMessage = (data) => {
@@ -620,7 +624,8 @@
         setGameMode('HOST');
         setMyPlayerNum(1);
         setErrorMsg('');
-        setPhase('WAITING_ROOM'); // 接続確立まで一旦待機画面へ
+        setPhase('WAITING_ROOM');
+        connectionsRef.current = [];
 
         const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
         setRoomId(newRoomId);
@@ -655,6 +660,7 @@
         setRoomId(targetId);
         setGameMode('CLIENT');
         setPhase('WAITING_ROOM'); 
+        connectionsRef.current = [];
 
         const peer = new Peer();
         peerRef.current = peer;
@@ -672,16 +678,26 @@
       };
 
       const checkTurnResolve = (currentGData, currentState) => {
-        if (phaseRef.current !== 'WAITING_FOR_OTHERS') return; 
-        const humanPlayers = Object.values(currentGData.players); const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
+        const hostPlayerNum = currentGData.players[myUid];
+        if (!currentGData.turnReady[hostPlayerNum]) return; // ホスト自身が確定していない場合は待機
+        
+        const humanPlayers = Object.values(currentGData.players); 
+        const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
+        
         const allReady = aliveHumanPlayers.every(p => currentGData.turnReady[p]);
         if (allReady && aliveHumanPlayers.length > 0) {
           const allCmds = [];
           aliveHumanPlayers.forEach(p => { if (currentGData.commands[p]) allCmds.push(...currentGData.commands[p]); });
-          const cpuCmds = generateCpuCommands(currentState, currentGData.cpuPlayers || []); allCmds.push(...cpuCmds);
+          const cpuCmds = generateCpuCommands(currentState, currentGData.cpuPlayers || []); 
+          allCmds.push(...cpuCmds);
+          
           const { nextState, animData } = simulateTurn(currentState, allCmds);
-          const nextGameData = { ...currentGData, commands: {}, turnReady: {} }; setGameData(nextGameData);
+          
+          const nextGameData = { ...currentGData, commands: {}, turnReady: {} }; 
+          setGameData(nextGameData);
+          
           sendMessage({ type: 'TURN_RESOLVE', nextState, animData, allCommands: allCmds, isGameOver: nextState.isGameOver });
+          
           startAnimation(currentState, nextState, animData, allCmds, nextState.isGameOver);
         }
       };
@@ -897,9 +913,12 @@
           startAnimation(gameState, nextState, animData, allCmds, nextState.isGameOver);
         } else if (gameMode === 'HOST') {
           const newGameData = { ...gameData, commands: { ...gameData.commands, [myPlayerNum]: playerCommands }, turnReady: { ...gameData.turnReady, [myPlayerNum]: true } };
-          setGameData(newGameData); setPhase('WAITING_FOR_OTHERS'); checkTurnResolve(newGameData, gameState);
+          setGameData(newGameData); 
+          setPhase('WAITING_FOR_OTHERS'); 
+          checkTurnResolve(newGameData, gameState);
         } else if (gameMode === 'CLIENT') {
-          sendMessage({ type: 'CMD_SUBMIT', playerNum: myPlayerNum, commands: playerCommands }); setPhase('WAITING_FOR_OTHERS');
+          sendMessage({ type: 'CMD_SUBMIT', playerNum: myPlayerNum, commands: playerCommands }); 
+          setPhase('WAITING_FOR_OTHERS');
         }
       };
 
@@ -1326,7 +1345,7 @@
                   <h3 className="text-xl text-green-400 font-bold">チュートリアル</h3>
                   <p className="text-slate-400 mt-2 text-xs text-center">基本を学びながら<br/>5つのステージをクリア</p>
                 </button>
-                <button onClick={() => startSoloGame(2)} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
+                <button onClick={() => setGameMode('SOLO')} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
                   <span className="text-5xl mb-3">👤</span>
                   <h3 className="text-xl text-white font-bold">ソロプレイ</h3>
                   <p className="text-slate-400 mt-2 text-xs text-center">AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
