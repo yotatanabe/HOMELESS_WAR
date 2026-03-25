@@ -634,6 +634,15 @@
       const isPrivateRef = useRef(false);
       const playerNameRef = useRef('バクテリア');
 
+      const peerOptions = {
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        }
+      };
+
       useEffect(() => { stateRefCurrent.current = gameState; }, [gameState]);
       useEffect(() => { phaseRefCurrent.current = phase; }, [phase]);
       useEffect(() => { gameDataRefCurrent.current = gameData; }, [gameData]);
@@ -862,7 +871,13 @@
         }
       }, [gameState?.weather]);
 
+      const cleanOldRooms = () => {
+        const now = Date.now();
+        activeRoomsRef.current = activeRoomsRef.current.filter(r => (now - (r.lastUpdated || now)) < 15000);
+      };
+
       const broadcastRooms = () => {
+        cleanOldRooms();
         serverConnectionsRef.current.forEach(conn => {
           if (conn.open) conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current });
         });
@@ -872,7 +887,7 @@
       const initLobby = () => {
         setLobbyState('initializing');
         lobbyStateRef.current = 'initializing';
-        const peer = new Peer(LOBBY_ID);
+        const peer = new Peer(LOBBY_ID, peerOptions);
         
         peer.on('open', () => {
           setLobbyState('is_server');
@@ -882,11 +897,13 @@
           peer.on('connection', (conn) => {
             serverConnectionsRef.current.push(conn);
             conn.on('open', () => {
+              cleanOldRooms();
               conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current });
             });
             conn.on('data', (data) => {
-              if (data.type === 'REGISTER_ROOM') {
+              if (data.type === 'REGISTER_ROOM' || data.type === 'UPDATE_ROOM') {
                 conn.hostedRoomId = data.room.roomId; 
+                data.room.lastUpdated = Date.now();
                 const idx = activeRoomsRef.current.findIndex(r => r.roomId === data.room.roomId);
                 if (idx !== -1) activeRoomsRef.current[idx] = data.room;
                 else activeRoomsRef.current.push(data.room);
@@ -894,12 +911,6 @@
               } else if (data.type === 'UNREGISTER_ROOM') {
                 activeRoomsRef.current = activeRoomsRef.current.filter(r => r.roomId !== data.roomId);
                 broadcastRooms();
-              } else if (data.type === 'UPDATE_ROOM') {
-                const idx = activeRoomsRef.current.findIndex(r => r.roomId === data.room.roomId);
-                if (idx !== -1) {
-                   activeRoomsRef.current[idx] = data.room;
-                   broadcastRooms();
-                }
               }
             });
             conn.on('close', () => {
@@ -909,17 +920,18 @@
                  broadcastRooms();
               }
             });
+            conn.on('error', () => {});
           });
         });
 
         peer.on('error', (err) => {
           if (err.type === 'unavailable-id') {
-            const clientPeer = new Peer();
+            const clientPeer = new Peer(peerOptions);
             lobbyPeerRef.current = clientPeer;
             clientPeer.on('open', () => {
               setLobbyState('is_client');
               lobbyStateRef.current = 'is_client';
-              const conn = clientPeer.connect(LOBBY_ID);
+              const conn = clientPeer.connect(LOBBY_ID, { reliable: true });
               lobbyConnRef.current = conn;
               
               conn.on('data', (data) => {
@@ -935,7 +947,12 @@
                    if (gameModeRefCurrent.current === 'MULTI') initLobby();
                 }, 1000 + Math.random() * 2000);
               });
+              conn.on('error', () => {});
             });
+          } else {
+             setTimeout(() => {
+                if (gameModeRefCurrent.current === 'MULTI') initLobby();
+             }, 3000);
           }
         });
       };
@@ -960,11 +977,46 @@
         }
       }, [gameMode]);
 
+      // ホスト側のハートビート（定期的に部屋情報を送信）
+      useEffect(() => {
+        let interval;
+        if (gameMode === 'HOST' && gameData && roomId && !isPrivate) {
+          interval = setInterval(() => {
+            updateLobbyRoom('UPDATE_ROOM', {
+              roomId: roomId,
+              roomName: gameData.roomName,
+              hostName: gameData.hostName,
+              playerCount: gameData.playerCount,
+              currentPlayers: gameData.playerUids.length,
+              isTeamBattle: gameData.isTeamBattle,
+              status: gameData.status
+            });
+          }, 3000);
+        }
+        return () => clearInterval(interval);
+      }, [gameMode, gameData, roomId, isPrivate]);
+
+      // ロビーサーバーのゴースト部屋掃除
+      useEffect(() => {
+        let interval;
+        if (lobbyState === 'is_server') {
+          interval = setInterval(() => {
+             const before = activeRoomsRef.current.length;
+             cleanOldRooms();
+             if (before !== activeRoomsRef.current.length) {
+                broadcastRooms();
+             }
+          }, 5000);
+        }
+        return () => clearInterval(interval);
+      }, [lobbyState]);
+
       const updateLobbyRoom = (action, roomData) => {
         if (isPrivateRef.current && action !== 'UNREGISTER_ROOM') return; 
 
         if (lobbyStateRef.current === 'is_server') {
            if (action === 'REGISTER_ROOM' || action === 'UPDATE_ROOM') {
+              roomData.lastUpdated = Date.now();
               const idx = activeRoomsRef.current.findIndex(r => r.roomId === roomData.roomId);
               if (idx !== -1) activeRoomsRef.current[idx] = roomData;
               else activeRoomsRef.current.push(roomData);
@@ -1048,7 +1100,7 @@
         setGameMode('HOST'); setMyPlayerNum(1); setErrorMsg(''); setPhase('WAITING_ROOM'); connectionsRef.current = [];
         const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
         setRoomId(newRoomId);
-        const peer = new Peer(`homeless-wars-${newRoomId}`);
+        const peer = new Peer(`homeless-wars-${newRoomId}`, peerOptions);
         peerRef.current = peer;
         peer.on('open', (id) => {
           const fullRoomName = `${playerNameRef.current}${roomNameSuffix}`;
@@ -1077,7 +1129,7 @@
       const joinRoom = (rid) => {
         if (!rid) return;
         setErrorMsg(''); const targetId = rid.toUpperCase(); setRoomId(targetId); setGameMode('CLIENT'); setPhase('WAITING_ROOM'); connectionsRef.current = [];
-        const peer = new Peer(); peerRef.current = peer;
+        const peer = new Peer(peerOptions); peerRef.current = peer;
         peer.on('open', () => { const conn = peer.connect(`homeless-wars-${targetId}`); setupDataChannel(conn); });
         peer.on('error', (err) => { setErrorMsg('ルームが見つからないか、通信に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
       };
