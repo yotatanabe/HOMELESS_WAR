@@ -652,6 +652,7 @@
 
         peer.on('error', (err) => {
           setErrorMsg('通信サーバーとの接続に失敗しました。');
+          setGameMode('MULTI');
           setPhase('SETUP');
           console.error(err);
         });
@@ -676,6 +677,7 @@
 
         peer.on('error', (err) => {
           setErrorMsg('ルームが見つからないか、通信に失敗しました。');
+          setGameMode('MULTI');
           setPhase('SETUP');
           console.error(err);
         });
@@ -1217,7 +1219,6 @@
         if (topPos < 10) topPos = node.y + 40; 
         if (leftPos - menuWidth / 2 < 10) leftPos = menuWidth / 2 + 10; else if (leftPos + menuWidth / 2 > MAP_W - 10) leftPos = MAP_W - menuWidth / 2 - 10;
 
-        // レスポンシブ対応: キャンバス内部座標を%に変換して配置
         const leftPct = (leftPos / MAP_W) * 100;
         const topPct = (topPos / MAP_H) * 100;
 
@@ -1393,7 +1394,7 @@
                 </div>
                 <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-2 md:mt-4 text-sm md:text-base">◀ モード選択へ戻る</button>
               </div>
-            ) : signalingStep === 0 ? (
+            ) : gameMode === 'MULTI' ? (
               <div className="flex flex-col items-center mt-4 w-full px-4">
                 <div className="flex flex-col md:flex-row gap-6 md:gap-8 w-full max-w-2xl justify-center">
                   <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center flex-1">
