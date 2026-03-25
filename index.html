@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (ローカル対戦版)</title>
+  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (P2P通信版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -101,7 +101,6 @@
 
     const getDistance = (n1, n2) => Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
 
-    // ★遠隔モード時は一方通行を無視(ignoreOneWay)できるように引数を追加
     const canMove = (id1, id2, edges, cutEdges = [], ignoreOneWay = false) => {
       return edges.some(e => {
         const isCut = cutEdges.some(ce => (ce.s === e.s && ce.t === e.t) || (ce.s === e.t && ce.t === e.s));
@@ -386,7 +385,6 @@
             node.energy += added; if (added > 0) animData.mines.push({ nodeId: node.id, amount: added });
           }
         }
-        // ★ 誰の陣地にもなっていないゴミ捨て場にはエネルギーを追加しない
         if (isTrashDay && node.type === 'dump') {
            if (node.owner !== 0) {
              const added = Math.min(node.maxEnergy - node.energy, 80);
@@ -409,7 +407,6 @@
           node.energy -= sentAmount;
           let baseReceived = sentAmount; if (activeAtkBoosts.has(req.nodeId)) baseReceived *= 2;
           
-          // ★ 遠隔時は一方通行無視
           const hops = getHopDistance(node.id, req.targetId, next.edges, cutEdges, node.mode === 'long_range');
           
           let receivedAmount = 0;
@@ -419,7 +416,6 @@
         });
       });
 
-      // ★ 新しい戦闘・占領ロジック
       next.nodes.forEach(node => {
         const nodeInflows = inflows[node.id];
         const originalEnergy = node.energy;
@@ -427,7 +423,6 @@
 
         let defEnergy = node.energy;
         
-        // 持ち主の流入は防衛力（または回復）に加算
         if (node.owner !== 0 && nodeInflows[node.owner] > 0) {
           defEnergy += nodeInflows[node.owner];
           nodeInflows[node.owner] = 0; 
@@ -439,7 +434,6 @@
         }
         
         if(attackers.length === 0) {
-          // 攻撃者がいない場合、持ち主の回復だけ適用して終了
           if (defEnergy !== originalEnergy) {
             node.energy = Math.min(node.maxEnergy, defEnergy);
             animData.combats.push({ nodeId: node.id, force: node.energy - originalEnergy, attacker: node.owner, clashAmount: 0 });
@@ -447,7 +441,6 @@
           return;
         }
 
-        // アニメーション表示用の総激突量
         let clashAmount = 0;
         if (attackers.length > 1) {
            clashAmount = attackers.reduce((sum, a) => sum + a.f, 0) + (defEnergy > 0 ? 10 : 0);
@@ -455,7 +448,6 @@
            clashAmount = attackers[0].f;
         }
 
-        // ★ ランダムに交互に防衛力を削る
         while (defEnergy > 0 && attackers.length > 0) {
             const idx = Math.floor(Math.random() * attackers.length);
             attackers[idx].f -= 1;
@@ -466,14 +458,11 @@
         }
 
         if (defEnergy > 0) {
-            // 防衛成功
             node.energy = Math.min(node.maxEnergy, defEnergy);
         } else {
-            // ★ 防衛力0。残存エネルギーが多い方が陣地を獲得し、差分が新しいエネルギーになる
             attackers.sort((a, b) => b.f - a.f);
             
             if (attackers.length === 0) {
-                // 全滅・相打ち
                 if (node.type === 'item') {
                     node.energy = 0;
                 } else {
@@ -485,7 +474,7 @@
             } else {
                 const top = attackers[0];
                 const secondForce = attackers.length > 1 ? attackers[1].f : 0;
-                const diff = top.f - secondForce; // 差分
+                const diff = top.f - secondForce; 
                 
                 if (diff > 0) {
                     if (node.type === 'item') {
@@ -502,7 +491,6 @@
                         node.energy = Math.min(node.maxEnergy, diff);
                     }
                 } else {
-                    // 同点で相打ちの場合
                     if (node.type !== 'item') {
                         node.owner = 0;
                         node.energy = 0;
@@ -513,13 +501,12 @@
             }
         }
 
-        // 表示用のアニメーションデータを作成
         if (!node.isCollected && originalOwner === node.owner) {
             const eDiff = node.energy - originalEnergy;
             if (eDiff > 0) {
                 animData.combats.push({ nodeId: node.id, force: eDiff, attacker: node.owner, clashAmount });
             } else if (eDiff < 0) {
-                animData.combats.push({ nodeId: node.id, force: Math.abs(eDiff), attacker: -1, clashAmount }); // 赤字でマイナス表示
+                animData.combats.push({ nodeId: node.id, force: Math.abs(eDiff), attacker: -1, clashAmount }); 
             } else {
                 animData.combats.push({ nodeId: node.id, force: 0, attacker: 0, clashAmount });
             }
@@ -527,7 +514,7 @@
             if (node.owner === 0) {
                 animData.combats.push({ nodeId: node.id, force: 0, attacker: 0, clashAmount });
             } else {
-                animData.combats.push({ nodeId: node.id, force: node.energy, attacker: node.owner, clashAmount }); // 獲得した差分エネルギーを表示
+                animData.combats.push({ nodeId: node.id, force: node.energy, attacker: node.owner, clashAmount }); 
             }
         }
       });
@@ -555,9 +542,6 @@
       const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
 
       const [gameMode, setGameMode] = useState(null); // 'SOLO' | 'HOST' | 'CLIENT'
-      const [roomId, setRoomId] = useState('');
-      const [joinInput, setJoinInput] = useState('');
-      const [errorMsg, setErrorMsg] = useState('');
       
       const [gameData, setGameData] = useState(null);
       const [myPlayerNum, setMyPlayerNum] = useState(1);
@@ -570,19 +554,25 @@
       const [hoveredNode, setHoveredNode] = useState(null);
       const [amountSlider, setAmountSlider] = useState(0);
       const [selectedChip, setSelectedChip] = useState(null);
+      
+      const [copiedText, setCopiedText] = useState(false);
 
       const canvasRef = useRef(null);
       const animRef = useRef({ active: false, progress: 0, data: null });
-      const bc = useRef(null);
+      
+      // WebRTC P2P用
+      const peerConnection = useRef(null);
+      const dataChannel = useRef(null);
+      const [localSdp, setLocalSdp] = useState('');
+      const [remoteSdp, setRemoteSdp] = useState('');
+      const [signalingStep, setSignalingStep] = useState(0);
 
       const stateRef = useRef(gameState);
-      const roomRef = useRef(roomId);
       const phaseRef = useRef(phase);
       const gameDataRef = useRef(gameData);
       const gameModeRef = useRef(gameMode);
 
       useEffect(() => { stateRef.current = gameState; }, [gameState]);
-      useEffect(() => { roomRef.current = roomId; }, [roomId]);
       useEffect(() => { phaseRef.current = phase; }, [phase]);
       useEffect(() => { gameDataRef.current = gameData; }, [gameData]);
       useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
@@ -604,60 +594,162 @@
         loadImages();
       }, []);
 
-      useEffect(() => {
-        const channel = new BroadcastChannel('homeless_wars_channel');
-        bc.current = channel;
-        
-        channel.onmessage = (e) => {
-          const data = e.data;
-          if (!data || data.roomId !== roomRef.current) return;
+      const encodeSDP = (obj) => btoa(JSON.stringify(obj));
+      const decodeSDP = (str) => JSON.parse(atob(str));
 
-          const gMode = gameModeRef.current;
-          const currentPhase = phaseRef.current;
-          const gData = gameDataRef.current;
+      const copyToClipboard = (text) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          setCopiedText(true);
+          setTimeout(() => setCopiedText(false), 2000);
+        } catch (err) {
+          console.error(err);
+        }
+        document.body.removeChild(textArea);
+      };
 
-          if (gMode === 'HOST') {
-            if (data.type === 'JOIN_REQ') {
-              if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
-                if (!gData.playerUids.includes(data.uid)) {
-                  const newNum = gData.playerUids.length + 1;
-                  const newGameData = {
-                    ...gData,
-                    players: { ...gData.players, [data.uid]: newNum },
-                    playerUids: [...gData.playerUids, data.uid]
-                  };
-                  setGameData(newGameData);
-                  channel.postMessage({ type: 'JOIN_ACK', roomId: roomRef.current, targetUid: data.uid, playerNum: newNum, gameData: newGameData });
-                  channel.postMessage({ type: 'ROOM_UPDATE', roomId: roomRef.current, gameData: newGameData });
-                }
-              }
-            } else if (data.type === 'CMD_SUBMIT') {
-              const newGameData = {
-                ...gData,
-                commands: { ...gData.commands, [data.playerNum]: data.commands },
-                turnReady: { ...gData.turnReady, [data.playerNum]: true }
-              };
-              setGameData(newGameData);
-              checkTurnResolve(newGameData, stateRef.current);
-            }
-          } else if (gMode === 'CLIENT') {
-            if (data.type === 'JOIN_ACK' && data.targetUid === myUid) {
-              setMyPlayerNum(data.playerNum);
-              setGameData(data.gameData);
-              setPhase('WAITING_ROOM');
-            } else if (data.type === 'ROOM_UPDATE') {
-              setGameData(data.gameData);
-            } else if (data.type === 'GAME_START') {
-              setGameState(data.state);
-              setGameData(data.gameData);
-              setPhase('INPUT');
-            } else if (data.type === 'TURN_RESOLVE') {
-              startAnimation(stateRef.current, data.nextState, data.animData, data.allCommands, data.isGameOver);
-            }
+      const setupDataChannel = (dc) => {
+        dc.onopen = () => {
+          setSignalingStep(3);
+          setPhase('WAITING_ROOM');
+          if (gameModeRef.current === 'CLIENT') {
+            sendMessage({ type: 'JOIN_REQ', uid: myUid });
           }
         };
-        return () => channel.close();
-      }, []);
+        dc.onmessage = (e) => {
+          handleNetworkMessage(JSON.parse(e.data));
+        };
+      };
+
+      const sendMessage = (msg) => {
+        if (dataChannel.current && dataChannel.current.readyState === 'open') {
+          dataChannel.current.send(JSON.stringify(msg));
+        }
+      };
+
+      const handleNetworkMessage = (data) => {
+        const gMode = gameModeRef.current;
+        const currentPhase = phaseRef.current;
+        const gData = gameDataRef.current;
+
+        if (gMode === 'HOST') {
+          if (data.type === 'JOIN_REQ') {
+            if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
+              if (!gData.playerUids.includes(data.uid)) {
+                const newNum = gData.playerUids.length + 1;
+                const newGameData = {
+                  ...gData,
+                  players: { ...gData.players, [data.uid]: newNum },
+                  playerUids: [...gData.playerUids, data.uid]
+                };
+                setGameData(newGameData);
+                sendMessage({ type: 'JOIN_ACK', targetUid: data.uid, playerNum: newNum, gameData: newGameData });
+                sendMessage({ type: 'ROOM_UPDATE', gameData: newGameData });
+              }
+            }
+          } else if (data.type === 'CMD_SUBMIT') {
+            const newGameData = {
+              ...gData,
+              commands: { ...gData.commands, [data.playerNum]: data.commands },
+              turnReady: { ...gData.turnReady, [data.playerNum]: true }
+            };
+            setGameData(newGameData);
+            checkTurnResolve(newGameData, stateRef.current);
+          }
+        } else if (gMode === 'CLIENT') {
+          if (data.type === 'JOIN_ACK' && data.targetUid === myUid) {
+            setMyPlayerNum(data.playerNum);
+            setGameData(data.gameData);
+            setPhase('WAITING_ROOM');
+          } else if (data.type === 'ROOM_UPDATE') {
+            setGameData(data.gameData);
+          } else if (data.type === 'GAME_START') {
+            setGameState(data.state);
+            setGameData(data.gameData);
+            setPhase('INPUT');
+          } else if (data.type === 'TURN_RESOLVE') {
+            startAnimation(stateRef.current, data.nextState, data.animData, data.allCommands, data.isGameOver);
+          }
+        }
+      };
+
+      // --- HOST: 手動シグナリング開始 ---
+      const startHosting = async (pCount) => {
+        setGameMode('HOST');
+        setMyPlayerNum(1);
+        setSignalingStep(1);
+        setGameData({
+          hostUid: myUid, status: 'WAITING', playerCount: pCount,
+          players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [],
+          commands: {}, turnReady: {}
+        });
+
+        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        peerConnection.current = pc;
+
+        const dc = pc.createDataChannel('gameData');
+        dataChannel.current = dc;
+        setupDataChannel(dc);
+
+        pc.onicecandidate = (e) => {
+          if (!e.candidate) {
+            setLocalSdp(encodeSDP(pc.localDescription));
+          }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+      };
+
+      const acceptAnswer = async () => {
+        try {
+          const pc = peerConnection.current;
+          const answer = decodeSDP(remoteSdp);
+          await pc.setRemoteDescription(answer);
+        } catch (err) {
+          alert("回答コードが正しくありません。");
+          console.error(err);
+        }
+      };
+
+      // --- CLIENT: 手動シグナリング開始 ---
+      const prepareJoining = () => {
+        setGameMode('CLIENT');
+        setSignalingStep(1);
+      };
+
+      const createAnswer = async () => {
+        try {
+          setSignalingStep(2);
+          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+          peerConnection.current = pc;
+
+          pc.ondatachannel = (e) => {
+            dataChannel.current = e.channel;
+            setupDataChannel(e.channel);
+          };
+
+          pc.onicecandidate = (e) => {
+            if (!e.candidate) {
+              setLocalSdp(encodeSDP(pc.localDescription));
+            }
+          };
+
+          const offer = decodeSDP(remoteSdp);
+          await pc.setRemoteDescription(offer);
+
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+        } catch (err) {
+          alert("招待コードが正しくありません。");
+          setSignalingStep(1);
+          console.error(err);
+        }
+      };
 
       const checkTurnResolve = (currentGData, currentState) => {
         if (phaseRef.current !== 'WAITING_FOR_OTHERS') return; 
@@ -677,9 +769,8 @@
           const nextGameData = { ...currentGData, commands: {}, turnReady: {} };
           setGameData(nextGameData);
           
-          bc.current.postMessage({
+          sendMessage({
             type: 'TURN_RESOLVE',
-            roomId: roomRef.current,
             nextState, animData, allCommands: allCmds, isGameOver: nextState.isGameOver
           });
           
@@ -743,34 +834,6 @@
         setPhase('INPUT');
       };
 
-      const createRoom = (pCount) => {
-        setErrorMsg('');
-        const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
-        setRoomId(newRoomId);
-        setGameMode('HOST');
-        setMyPlayerNum(1);
-        const initialGameData = {
-          hostUid: myUid, status: 'WAITING', playerCount: pCount,
-          players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [],
-          commands: {}, turnReady: {}
-        };
-        setGameData(initialGameData);
-        setPhase('WAITING_ROOM');
-        bc.current.postMessage({ type: 'ROOM_UPDATE', roomId: newRoomId, gameData: initialGameData });
-      };
-
-      const joinRoom = (rid) => {
-        if (!rid) return;
-        setErrorMsg('');
-        const targetId = rid.toUpperCase();
-        setRoomId(targetId);
-        setGameMode('CLIENT');
-        bc.current.postMessage({ type: 'JOIN_REQ', roomId: targetId, uid: myUid });
-        setTimeout(() => {
-          if (phaseRef.current === 'SETUP') setErrorMsg('ルームが見つからないか満員です。');
-        }, 1000);
-      };
-
       const startGame = () => {
         if (gameMode !== 'HOST' || !gameData) return;
         const mapData = generateMap(gameData.playerCount);
@@ -794,9 +857,8 @@
         setGameState(initialState);
         setPhase('INPUT');
 
-        bc.current.postMessage({
+        sendMessage({
           type: 'GAME_START',
-          roomId,
           state: initialState,
           gameData: newGameData
         });
@@ -835,7 +897,6 @@
           const sourceNode = gameState.nodes.find(n => n.id === uiState.nodeId);
           const maxHops = sourceNode.mode === 'long_range' ? 2 : 1;
           
-          // ★ターゲット選択時、遠隔なら一方通行を無視
           const distHop = getHopDistance(uiState.nodeId, clickedNode?.id, gameState.edges, [], sourceNode.mode === 'long_range');
 
           if (clickedNode && distHop > 0 && distHop <= maxHops) {
@@ -905,8 +966,8 @@
           setPhase('WAITING_FOR_OTHERS');
           checkTurnResolve(newGameData, gameState);
         } else if (gameMode === 'CLIENT') {
-          bc.current.postMessage({
-            type: 'CMD_SUBMIT', roomId, uid: myUid, playerNum: myPlayerNum, commands: playerCommands
+          sendMessage({
+            type: 'CMD_SUBMIT', playerNum: myPlayerNum, commands: playerCommands
           });
           setPhase('WAITING_FOR_OTHERS');
         }
@@ -1262,7 +1323,7 @@
                 <button onClick={() => setGameMode('MULTI')} className="bg-slate-800/80 p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-72">
                   <span className="text-6xl mb-4">🌐</span>
                   <h3 className="text-2xl text-sky-400 font-bold">ローカル通信対戦</h3>
-                  <p className="text-slate-400 mt-2 text-sm text-center">2つのウィンドウを開いて<br/>同じPC・ブラウザ内で遊ぶ</p>
+                  <p className="text-slate-400 mt-2 text-sm text-center">2台のPCを直接繋いで<br/>サーバーなしで対戦する</p>
                 </button>
               </div>
             ) : gameMode === 'SOLO' ? (
@@ -1275,27 +1336,95 @@
                 </div>
                 <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-4">◀ モード選択へ戻る</button>
               </div>
-            ) : (
+            ) : signalingStep === 0 ? (
               <div className="flex flex-col items-center mt-4">
                 <div className="flex gap-8">
-                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center">
-                    <h3 className="text-xl text-yellow-400 font-bold mb-6 flex items-center gap-2">⛺ 新しくショバを作る</h3>
-                    <div className="flex gap-3">
+                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center w-80">
+                    <h3 className="text-xl text-yellow-400 font-bold mb-4">⛺ 部屋を作る (ホスト)</h3>
+                    <p className="text-slate-400 text-sm text-center mb-6">参加人数を選んで<br/>招待コードを発行します。</p>
+                    <div className="flex gap-2">
                       {[2, 3, 4].map(num => (
-                        <button key={num} onClick={() => createRoom(num)} className="px-6 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors">{num} 派閥</button>
+                        <button key={num} onClick={() => createRoom(num)} className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded transition-colors">{num} 派閥</button>
                       ))}
                     </div>
                   </div>
-                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center">
-                    <h3 className="text-xl text-sky-400 font-bold mb-6 flex items-center gap-2">🍶 既存のショバにカチこむ</h3>
-                    <div className="flex gap-3">
-                      <input type="text" placeholder="ルームID" value={joinInput} onChange={(e) => setJoinInput(e.target.value)} className="px-4 py-3 rounded-lg bg-slate-900 text-white border border-slate-600 w-36 uppercase font-mono text-center text-xl tracking-widest" maxLength={4} />
-                      <button onClick={() => joinRoom(joinInput)} className="px-6 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-colors">参加</button>
-                    </div>
-                    {errorMsg && <p className="text-red-400 text-sm mt-3 font-bold">{errorMsg}</p>}
+                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center w-80">
+                    <h3 className="text-xl text-sky-400 font-bold mb-4">🍶 部屋に参加 (ゲスト)</h3>
+                    <p className="text-slate-400 text-sm text-center mb-6">ホストから受け取った<br/>招待コードで参加します。</p>
+                    <button onClick={joinRoom} className="px-8 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-colors w-full">参加準備へ</button>
                   </div>
                 </div>
                 <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-8">◀ モード選択へ戻る</button>
+              </div>
+            ) : gameMode === 'HOST' ? (
+              <div className="bg-slate-800/90 p-8 rounded-xl border border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)] backdrop-blur flex flex-col items-center mt-4 w-full max-w-2xl relative">
+                <h3 className="text-2xl text-yellow-400 font-bold mb-4">ホスト接続待機中...</h3>
+                <p className="text-slate-300 text-sm mb-6 text-center leading-relaxed">
+                  以下の「招待コード」をコピーして、対戦相手に渡してください。<br/>
+                  相手が生成した「回答コード」を下の入力欄に貼り付けると接続が完了します。
+                </p>
+                
+                <div className="w-full mb-8 relative">
+                  <div className="flex justify-between items-end mb-2">
+                    <label className="text-sm font-bold text-slate-400">あなたの招待コード (相手に渡す)</label>
+                    <button onClick={() => copyToClipboard(localSdp)} className={`text-xs px-3 py-1 rounded transition-colors ${copiedText ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
+                      {copiedText ? '✅ コピー完了' : '📋 コピーする'}
+                    </button>
+                  </div>
+                  <textarea readOnly value={localSdp || 'コード生成中...'} className="w-full h-24 bg-slate-900 text-slate-300 p-3 rounded border border-slate-600 text-xs font-mono focus:outline-none" />
+                  {!localSdp && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50 rounded mt-6"><span className="animate-spin text-2xl">⏳</span></div>}
+                </div>
+
+                <div className="w-full mb-6">
+                  <label className="text-sm font-bold text-sky-400 mb-2 block">相手からの回答コード を入力</label>
+                  <textarea value={remoteSdp} onChange={e => setRemoteSdp(e.target.value)} placeholder="ここに回答コードを貼り付けます" className="w-full h-24 bg-slate-900 text-white p-3 rounded border border-sky-500/50 text-xs font-mono focus:outline-none focus:border-sky-400" />
+                </div>
+                
+                <button onClick={acceptAnswer} disabled={!remoteSdp} className="px-10 py-3 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold rounded-lg shadow-lg text-lg w-full">
+                  接続を確立する
+                </button>
+                <button onClick={() => setSignalingStep(0)} className="text-slate-400 hover:text-white underline mt-6 text-sm">◀ 戻る</button>
+              </div>
+            ) : (
+              <div className="bg-slate-800/90 p-8 rounded-xl border border-sky-500/50 shadow-[0_0_20px_rgba(14,165,233,0.2)] backdrop-blur flex flex-col items-center mt-4 w-full max-w-2xl relative">
+                <h3 className="text-2xl text-sky-400 font-bold mb-4">部屋に参加</h3>
+                
+                {signalingStep === 1 ? (
+                  <>
+                    <p className="text-slate-300 text-sm mb-6 text-center leading-relaxed">
+                      ホストから受け取った「招待コード」を貼り付けてください。<br/>
+                      回答コードを生成します。
+                    </p>
+                    <div className="w-full mb-8">
+                      <label className="text-sm font-bold text-yellow-400 mb-2 block">ホストの招待コード を入力</label>
+                      <textarea value={remoteSdp} onChange={e => setRemoteSdp(e.target.value)} placeholder="ここに招待コードを貼り付けます" className="w-full h-32 bg-slate-900 text-white p-3 rounded border border-yellow-500/50 text-xs font-mono focus:outline-none focus:border-yellow-400" />
+                    </div>
+                    <button onClick={createAnswer} disabled={!remoteSdp} className="px-10 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 disabled:opacity-50 text-white font-bold rounded-lg shadow-lg text-lg w-full">
+                      回答コードを生成
+                    </button>
+                    <button onClick={() => setSignalingStep(0)} className="text-slate-400 hover:text-white underline mt-6 text-sm">◀ 戻る</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-slate-300 text-sm mb-6 text-center leading-relaxed">
+                      生成された「回答コード」をコピーしてホストに渡してください。<br/>
+                      ホストが接続を確立するまでこのままお待ちください。
+                    </p>
+                    <div className="w-full mb-8 relative">
+                      <div className="flex justify-between items-end mb-2">
+                        <label className="text-sm font-bold text-slate-400">あなたの回答コード (ホストに渡す)</label>
+                        <button onClick={() => copyToClipboard(localSdp)} className={`text-xs px-3 py-1 rounded transition-colors ${copiedText ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
+                          {copiedText ? '✅ コピー完了' : '📋 コピーする'}
+                        </button>
+                      </div>
+                      <textarea readOnly value={localSdp || 'コード生成中...'} className="w-full h-32 bg-slate-900 text-slate-300 p-3 rounded border border-slate-600 text-xs font-mono focus:outline-none" />
+                      {!localSdp && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50 rounded mt-6"><span className="animate-spin text-2xl">⏳</span></div>}
+                    </div>
+                    <div className="text-sky-300 animate-pulse text-lg flex items-center gap-2 mt-4 font-bold tracking-widest">
+                      <span className="animate-spin inline-block">⏳</span> 接続確立を待機中...
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1305,8 +1434,8 @@
       if (phase === 'WAITING_ROOM') {
         return (
           <div className="w-full h-screen flex flex-col items-center justify-center font-sans text-white" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
-            <h2 className="text-4xl font-black text-yellow-400 mb-6 drop-shadow-lg flex items-center gap-3">👥 参加者待機中...</h2>
-            <p className="text-2xl mb-10 text-slate-300">ルームID: <span className="font-mono bg-slate-800/80 px-6 py-2 rounded-lg border border-slate-500 text-4xl tracking-[0.2em] text-white ml-2">{roomId}</span></p>
+            <h2 className="text-4xl font-black text-green-400 mb-6 drop-shadow-lg flex items-center gap-3">✅ 通信接続完了！</h2>
+            <p className="text-xl mb-10 text-slate-300">P2Pネットワークによる直接通信が確立されました。</p>
             
             <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur w-96 mb-10">
               <h3 className="text-lg text-slate-300 mb-4 font-bold border-b border-slate-600 pb-2">参加メンバー ({gameData?.playerUids?.length} / {gameData?.playerCount})</h3>
@@ -1324,7 +1453,7 @@
             </div>
 
             {gameMode === 'HOST' ? (
-              <button onClick={startGame} className="px-12 py-5 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white font-black text-2xl rounded-xl shadow-2xl transition-all hover:-translate-y-1">
+              <button onClick={startGame} className="px-12 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-black text-2xl rounded-xl shadow-2xl transition-all hover:-translate-y-1">
                 ゲーム開始 (空き枠はAIが担当)
               </button>
             ) : (
@@ -1384,7 +1513,7 @@
             </div>
             
             <div className="flex flex-col items-end gap-2">
-              {gameMode !== 'SOLO' && <div className="text-slate-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-slate-600">ROOM: {roomId}</div>}
+              {gameMode !== 'SOLO' && <div className="text-green-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-green-600/50 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>P2P CONNECTED</div>}
               <div className="flex items-center gap-4 bg-slate-800 border border-slate-600 px-5 py-2 rounded-full shadow-lg">
                 <div className="flex items-center gap-2 text-slate-300">
                   <span className="text-sky-400">📅</span> <span className="font-bold text-lg">{gameState.turn}日目 ({DAYS[currentDayIndex]})</span>
