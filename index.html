@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (簡単ローカル対戦版)</title>
+  <title>菌バトル</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -14,11 +14,19 @@
   
   <style>
     * { -webkit-tap-highlight-color: transparent; }
-    /* リサイザーをドラッグ中にテキスト選択されるのを防ぐ */
     body.resizing { user-select: none; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+    
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    }
+    .immune-target { animation: pulse-red 1.5s infinite; }
   </style>
 </head>
-<body class="bg-slate-950 overflow-hidden text-white touch-manipulation">
+<body class="bg-black overflow-hidden text-white touch-manipulation">
   <div id="root"></div>
 
   <script type="text/babel">
@@ -28,91 +36,77 @@
     const MAP_H = 600;
 
     const COLORS = {
-      bg: '#0f172a', edge: '#cbd5e1', neutral: '#64748b', dump: '#84cc16',     
-      players: ['#64748b', '#0ea5e9', '#ef4444', '#22c55e', '#eab308'],
-      highlight: '#facc15', long_range: '#c084fc'
+      bg: '#000000', edge: '#fca5a5', neutral: '#64748b', dump: '#991b1b',     
+      players: ['#64748b', '#3b82f6', '#ef4444', '#22c55e', '#eab308'],
+      highlight: '#facc15', long_range: '#a855f7'
     };
 
     const BACKGROUNDS = {
-      sunny: 'url("https://images.unsplash.com/photo-1496350369888-297ebcc02052?auto=format&fit=crop&q=80&w=900&h=600")',
-      typhoon: 'url("https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&q=80&w=900&h=600")',
-      cold: 'url("https://images.unsplash.com/photo-1478265409131-1f65c88f965c?auto=format&fit=crop&q=80&w=900&h=600")'
+      normal: 'url("https://images.unsplash.com/photo-1614850715649-1d0106293cb1?auto=format&fit=crop&q=80&w=900&h=600")',
+      fever: 'url("https://images.unsplash.com/photo-1576502200916-3808e07386a5?auto=format&fit=crop&q=80&w=900&h=600")',
+      tachycardia: 'url("https://images.unsplash.com/photo-1557672172-298e090bd0f1?auto=format&fit=crop&q=80&w=900&h=600")'
     };
 
-    const ASSETS = {
-      station: './assets/station.png', bench: './assets/bench.png',
-      underpass: './assets/underpass.png', ruin: './assets/ruin.png',
-      dump: './assets/dump.png', item: './assets/item_box.png',
-      chip_emp: './assets/chip_emp.png', chip_stealth: './assets/chip_stealth.png',
-      chip_boost: './assets/chip_boost.png', chip_mine: './assets/chip_mine.png',
-      chip_atk: './assets/chip_atk.png', chip_sabotage: './assets/chip_sabotage.png',
-      weather_sunny: './assets/weather_sunny.png', weather_typhoon: './assets/weather_typhoon.png',
-      weather_cold: './assets/weather_cold.png',
-    };
+    const ASSETS = {};
 
     const CHIP_TYPES = {
-      EMP: { id: 'EMP', name: 'カラスの死骸', desc: '敵のカットを無効化', imgKey: 'chip_emp', icon: '🦅' },
-      STEALTH: { id: 'STEALTH', name: '段ボール擬態', desc: '移動ラインを隠す', imgKey: 'chip_stealth', icon: '🥷' },
-      BOOST: { id: 'BOOST', name: '台車ダッシュ', desc: '1T遠隔ロス0', imgKey: 'chip_boost', icon: '🛒' },
-      MINE_BOOST: { id: 'MINE_BOOST', name: '炊き出しの噂', desc: '1T選択ノードの採掘量x2', imgKey: 'chip_mine', icon: '🍲' },
-      ATK_BOOST: { id: 'ATK_BOOST', name: '拾った酒', desc: '1T選択ノードの輸送量x2', imgKey: 'chip_atk', icon: '🍶' },
-      SABOTAGE: { id: 'SABOTAGE', name: 'サツの巡回', desc: '1T敵ノードの採掘停止', imgKey: 'chip_sabotage', icon: '🚓' }
+      EMP: { id: 'EMP', name: '溶解酵素', desc: '敵の防壁(カット)を溶かす', icon: '🧬' },
+      STEALTH: { id: 'STEALTH', name: '免疫擬態', desc: '悟られずに浸潤する', icon: '🥷' },
+      BOOST: { id: 'BOOST', name: '鞭毛モーター', desc: '1T 血流移動ロス0', icon: '〰️' },
+      MINE_BOOST: { id: 'MINE_BOOST', name: '異常代謝', desc: '1T 選択組織の増殖量x2', icon: '♨️' },
+      ATK_BOOST: { id: 'ATK_BOOST', name: '猛毒素', desc: '1T 選択組織の攻撃力x2', icon: '☠️' },
+      SABOTAGE: { id: 'SABOTAGE', name: 'バクテリオシン', desc: '1T 敵組織の増殖停止', icon: '💊' }
     };
 
-    const SHOBA_INFO = {
-      station: { name: '駅の隅っこ', radius: 35, imgKey: 'station' },
-      bench: { name: '公園のベンチ', radius: 20, imgKey: 'bench' },
-      underpass: { name: '高架下', radius: 28, imgKey: 'underpass' },
-      ruin: { name: '廃ビル', radius: 32, imgKey: 'ruin' },
-      dump: { name: 'ゴミ捨て場', radius: 32, imgKey: 'dump' },
+    const TISSUE_INFO = {
+      mucosa: { name: '粘膜細胞', radius: 35, icon: '🦠' },
+      epithelium: { name: '上皮組織', radius: 20, icon: '🧬' },
+      muscle: { name: '筋肉組織', radius: 28, icon: '🥩' },
+      organ: { name: '主要臓器', radius: 32, icon: '🫀' },
+      necrosis: { name: '壊死部位', radius: 32, icon: '💀' },
     };
-
-    const SHOBA_EMOJI = { station: '🚉', bench: '🪑', underpass: '🌉', ruin: '🏚️', dump: '🗑️' };
-    const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
 
     const TUTORIAL_SLIDES = [
-      { title: "👑 地下帝国のドンを目指せ", icon: "⛺", content: "お前は路上を生き抜く派閥のリーダーだ。他の派閥と「ショバ（居場所）」を奪い合い、自分以外のすべての派閥を街から追い出せば勝利となる。\nショバにある数字は「資源（空き缶や仲間の数）」だ。この資源を他のショバに送り込んで、襲撃や防衛を行うんだ。" },
-      { title: "🛒 カチコミと移動", icon: "➡️", content: "自分のショバをクリックするとメニューが開く。\n「輸送」を選び、隣接するショバを選択して送り込む資源の量を決めろ。\n全員が行動を「確定」すると、一斉に移動と乱闘が始まる【同時ターン制】だ。相手の裏をかけ！" },
-      { title: "🔨 設備の強化 と ✂️ 通行止め", icon: "🛠️", content: "【設備強化】: 30資源を消費してショバを強化（ブルーシート→トタン→プレハブ）できる。最大蓄積量と毎ターンの資源回収量が増えるぞ。\n【カット】: 10資源を消費して、指定した道を1ターンの間「通行止め」にする。バリケードを築いて敵のカチコミを防ぐ防衛の要だ。" },
-      { title: "📡 遠隔モード (出稼ぎ)", icon: "📡", content: "「遠隔切替」を行うと、そのショバでの毎ターンの資源回収が止まる代わりに、2マス先まで（一方通行を無視して）一気にカチコミに行けるようになる。\nただし、2マス先への遠征は道中で資源を落とす「ロス（減衰）」が発生する。ショバのレベルを上げればロスは減るぜ。" },
-      { title: "🗑️ ゴミの日 と 📦 謎の段ボール", icon: "🗑️", content: "【ゴミ捨て場】は普段はただの空き地だが、「ゴミの日（火曜・金曜など）」になると大量の資源が不法投棄される宝の山になる！\nまた、定期的にマップに現れる【謎の段ボール】を攻撃して体力を0にすると、戦局をひっくり返す「強力なアイテム」を拾えるぞ。" },
-      { title: "⚔️ 血みどろの乱戦", icon: "⚔️", content: "複数の派閥が同じショバにカチコミをかけると、入り乱れての「大乱戦」に発展する。\nお互いの資源がランダムに削り合いとなり、最後まで立っていた（資源が多かった）派閥がそのショバをぶんどる仕組みだ。\n「拾った酒」で攻撃力を倍増させるなど、アイテムを汚く使って勝ち残れ！" }
+      { title: "🦠 菌バトル", icon: "🫀", content: "あなたは人体に侵入した「新種の病原菌」だ。他の競合するバクテリア（ライバル派閥）と限られた栄養を奪い合い、宿主の身体を完全に支配すれば勝利となる。\n組織（丸い拠点）にある数字は「菌数」だ。この菌を隣接する組織に浸潤（移動）させて、領土を広げるんだ。" },
+      { title: "🩸 浸潤と乱戦", icon: "➡️", content: "自分の組織をクリックして【浸潤（輸送）】を選び、送り込む菌数を決めろ。全員が行動を「確定」すると、一斉に感染拡大が始まる。\n複数の菌が同じ組織に侵入した場合、入り乱れての「大乱戦」になる。お互いの菌が削り合い、最後に残った菌がそこを占領するぞ！" },
+      { title: "🛡️ バイオフィルム形成", icon: "🛠️", content: "【バイオフィルム形成（設備強化）】: 30菌を消費して組織のレベルを上げる。最大増殖量が増えるだけでなく、敵から受ける攻撃力を「Lv2なら20%」「Lv3なら40%」カットして防いでくれる強固な陣地になるぞ！\n【細胞壁硬化（カット）】: 10菌を消費して血管を1ターン塞ぐ、防衛の要だ。" },
+      { title: "📡 芽胞化と血流乗布", icon: "〰️", content: "「血流（遠隔）モード」に切り替えると、その組織での増殖が止まる代わりに、血流に乗って2マス先まで一気に感染を広げられる。\nただし、遠くへの移動は道中の免疫に狩られる「ロス（減衰）」が発生する。組織レベルを上げればロスは減るぜ。" },
+      { title: "💀 壊死崩壊と 🧬 突然変異", icon: "💀", content: "【壊死部位（ゴミ捨て場）】は普段は栄養がないが、定期的に細胞が崩壊して「大量の栄養素（菌数）」が手に入る！\nまた、マップに現れる【プラスミド（段ボール）】を攻撃して壊すと、猛毒素や溶解酵素などの強力な「変異遺伝子（アイテム）」を獲得できるぞ。" },
+      { title: "🚨 マクロファージの襲来", icon: "🚨", content: "【マクロファージ（白血球）】の貪食に気をつけろ！\n3ターンに1回、ランダムな組織に免疫細胞が襲来し、そこにいる菌数を「強制的に半分」にしてしまう。\n赤いターゲットマークが出た組織からは、事前に逃げるか、半分にされるのを覚悟で耐え忍ぶかの決断が必要だ！" },
+      { title: "🤝 2vs2 混合感染（チーム戦）", icon: "🤝", content: "【チーム戦ルール】\nチーム1 (青・赤) vs チーム2 (緑・黄) の複合感染バトルだ。\n同盟菌の組織に菌を送ると、攻撃ではなく「支援（合流して回復）」になる。\n「相手チームの初期臓器（本拠地）をどちらか片方でも制圧した瞬間」に宿主の機能不全を引き起こして勝利だ！" }
     ];
 
     const PLAYABLE_TUTORIALS = [
       {
-        id: 1, title: "STAGE 1: 路上デビュー", message: "まずは隣の中立拠点（公園のベンチ）を占領してみよう。\n自分の拠点（駅の隅っこ）をクリックして【輸送】を選び、隣の拠点をクリックだ。\n送る量を決めたら右下の【行動確定】を押せ！\n（※背景をドラッグするとマップを見渡せるぞ）", allowedActions: ['move'],
-        setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'bench', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 1 }),
+        id: 1, title: "STAGE 1: 最初の感染", message: "まずは隣の「上皮組織」に感染してみよう。\n自分の拠点（粘膜細胞）をクリックして【浸潤（輸送）】を選び、隣の拠点をクリックだ。\n送る菌数を決めたら右下の【行動確定】を押せ！", allowedActions: ['move'],
+        setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'epithelium', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 1, isTeamBattle: false }),
         cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1
-      },
-      {
-        id: 2, title: "STAGE 2: 縄張り争い", message: "右側に敵の派閥がうろついている。相手の拠点にカチコミをかけて奪い取れ！\n相手より多くの資源（エネルギー）を送り込めば勝てるぞ。", allowedActions: ['move'],
-        setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 2, energy: 20, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 2 }),
-        cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1 || !state.alivePlayers.includes(2)
-      },
-      {
-        id: 3, title: "STAGE 3: 地盤固め", message: "資源が30以上溜まると【設備強化】ができる。\nレベルを上げると最大備蓄量と毎ターンの回復量が増えるぞ。\nターンを進めて資源を貯め、自分の拠点をLv2（トタン屋根）にしてみよう。", allowedActions: ['upgrade', 'move'],
-        setup: () => ({ nodes: [{ id: 1, x: 450, y: 300, owner: 1, energy: 10, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }], edges: [], playerCount: 1 }),
-        cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 1)?.level >= 2
-      },
-      {
-        id: 4, title: "STAGE 4: 鉄壁の防衛", message: "敵の大群が毎ターン攻めてくる！\n【カット(✂️)】を使って道を1ターン封鎖し、相手の攻撃をやり過ごせ。\nコストは10かかるが、防衛の要だ。3ターン耐え抜くか、敵を倒せばクリアだ。", allowedActions: ['move', 'upgrade', 'cut'],
-        setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 40, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 2, energy: 100, maxEnergy: 200, generation: 15, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 2 }),
-        cpuLogic: (state) => { const cmds = []; const enemyNode = state.nodes.find(n => n.id === 2); if (enemyNode && enemyNode.energy > 20) { cmds.push({ type: 'move', nodeId: 2, targetId: 1, amount: 20, playerId: 2 }); } return cmds; },
-        checkWin: (state) => state.turn > 3 || state.nodes.find(n => n.id === 2)?.owner === 1
-      },
-      {
-        id: 5, title: "STAGE 5: 出稼ぎとアイテム", message: "【遠隔切替(📡)】をすると、回復が止まる代わりに2マス先までカチコミできる。ただし輸送ロス（半減）があるぞ。\n上の謎の段ボールを壊して「攻撃力倍増」アイテムを取り、遠くにいる敵を倒せ！", allowedActions: ['move', 'upgrade', 'cut', 'toggle_mode', 'use_chip'],
-        setup: () => ({ nodes: [{ id: 1, x: 150, y: 300, owner: 1, energy: 80, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 2, x: 450, y: 300, owner: 0, energy: 50, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'underpass', level: 1, mode: 'normal' }, { id: 3, x: 750, y: 300, owner: 2, energy: 30, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }, { id: 4, x: 450, y: 150, owner: 0, energy: 5, maxEnergy: 10, generation: 0, type: 'item', item: 'ATK_BOOST', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }, { s: 2, t: 3, isOneWay: false }, { s: 2, t: 4, isOneWay: false }], playerCount: 2 }),
-        cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 3)?.owner === 1 || !state.alivePlayers.includes(2)
       }
     ];
 
-    const generateWeather = () => { const r = Math.random(); if (r < 0.2) return 'typhoon'; if (r < 0.4) return 'cold'; return 'sunny'; };
-    const getWeatherName = (weather) => { if (weather === 'typhoon') return '台風 (遠隔ロス増大)'; if (weather === 'cold') return '大寒波 (Lv1拠点ダメージ)'; return '晴れ'; };
-    const renderWeatherIcon = (weather, sizeClass='w-6 h-6', imagesObj={}) => {
-      const key = `weather_${weather}`; if (imagesObj[key]) return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block drop-shadow-md`} />;
-      if (weather === 'typhoon') return <span className="text-yellow-400">⛈️</span>; if (weather === 'cold') return <span className="text-cyan-300">❄️</span>; return <span className="text-orange-400">☀️</span>;
+    const getTeam = (p, isTeamBattle) => {
+      if (!isTeamBattle) return p;
+      if (p === 1 || p === 2) return 1;
+      if (p === 3 || p === 4) return 2;
+      return 0; 
+    };
+
+    const isAlly = (p1, p2, isTeamBattle) => {
+      if (p1 === 0 || p2 === 0) return false;
+      return getTeam(p1, isTeamBattle) === getTeam(p2, isTeamBattle);
+    };
+
+    const isEnemy = (p1, p2, isTeamBattle) => {
+      if (p1 === 0 || p2 === 0) return true; 
+      return getTeam(p1, isTeamBattle) !== getTeam(p2, isTeamBattle);
+    };
+
+    const generateWeather = () => { const r = Math.random(); if (r < 0.2) return 'tachycardia'; if (r < 0.4) return 'fever'; return 'normal'; };
+    const getWeatherName = (weather) => { if (weather === 'tachycardia') return '頻脈 (血流移動ロス増大)'; if (weather === 'fever') return '発熱 (Lv1組織がダメージ)'; return '平熱 (安定)'; };
+    const renderWeatherIcon = (weather, sizeClass='w-6 h-6') => {
+      if (weather === 'tachycardia') return <span className={`${sizeClass} flex items-center justify-center text-yellow-400 drop-shadow-md text-xl`}>💓</span>; 
+      if (weather === 'fever') return <span className={`${sizeClass} flex items-center justify-center text-red-500 drop-shadow-md text-xl`}>🔥</span>; 
+      return <span className={`${sizeClass} flex items-center justify-center text-green-400 drop-shadow-md text-xl`}>🧬</span>;
     };
 
     const intersects = (a, b, c, d) => {
@@ -150,10 +144,10 @@
       return nodes.filter(n => n.id !== startId && getHopDistance(startId, n.id, edges, [], ignoreOneWay) <= maxHops);
     };
 
-    const getVisibleNodes = (playerId, nodes, edges) => {
+    const getVisibleNodes = (playerId, nodes, edges, isTeamBattle) => {
       const visible = new Set();
       nodes.forEach(n => {
-        if (n.owner === playerId) {
+        if (n.owner === playerId || (isTeamBattle && isAlly(n.owner, playerId, isTeamBattle))) {
           visible.add(n.id);
           const neighbors1 = new Set();
           edges.forEach(e => { if (e.s === n.id) neighbors1.add(e.t); if (e.t === n.id) neighbors1.add(e.s); });
@@ -169,11 +163,11 @@
     const getLossRate = (level, weather) => {
       let rate = 0;
       if (level === 1) rate = 0.5; else if (level === 2) rate = 0.3; else if (level === 3) rate = 0.1; 
-      if (weather === 'typhoon') rate = Math.min(0.9, rate + 0.4); 
+      if (weather === 'tachycardia') rate = Math.min(0.9, rate + 0.4); 
       return rate;
     };
 
-    const getLevelName = (level) => { if (level === 1) return 'ブルーシート'; if (level === 2) return 'トタン屋根'; if (level === 3) return 'プレハブ'; return ''; };
+    const getLevelName = (level) => { if (level === 1) return '菌コロニー'; if (level === 2) return '薄層バイオフィルム'; if (level === 3) return '強固バイオフィルム'; return ''; };
 
     const spawnItem = (mapData) => {
       const { nodes, edges } = mapData;
@@ -197,25 +191,27 @@
       }
     };
 
-    const generateMap = (playerCount) => {
+    const generateMap = (playerCount, isTeamBattle) => {
       const nodes = [], bases = [];
-      if (playerCount === 2) bases.push({ x: 150, y: 300 }, { x: 750, y: 300 });
-      else if (playerCount === 3) bases.push({ x: 450, y: 100 }, { x: 200, y: 450 }, { x: 700, y: 450 });
-      else bases.push({ x: 150, y: 150 }, { x: 750, y: 150 }, { x: 150, y: 450 }, { x: 750, y: 450 });
+      const actualPlayers = isTeamBattle ? 4 : playerCount;
+      
+      if (actualPlayers === 2) bases.push({ x: 150, y: 300 }, { x: 750, y: 300 });
+      else if (actualPlayers === 3) bases.push({ x: 450, y: 100 }, { x: 200, y: 450 }, { x: 700, y: 450 });
+      else bases.push({ x: 150, y: 150 }, { x: 150, y: 450 }, { x: 750, y: 150 }, { x: 750, y: 450 }); 
 
-      for (let i = 1; i <= playerCount; i++) nodes.push({ id: i, x: bases[i-1].x, y: bases[i-1].y, owner: i, energy: 100, maxEnergy: 200, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' });
+      for (let i = 1; i <= actualPlayers; i++) nodes.push({ id: i, x: bases[i-1].x, y: bases[i-1].y, owner: i, energy: 100, maxEnergy: 200, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' });
 
       let idCounter = 5; 
-      for (let i = 0; i < 12 + (playerCount * 2); i++) {
+      for (let i = 0; i < 12 + (actualPlayers * 2); i++) {
         let x, y, valid = false, attempts = 0;
         while (!valid && attempts < 200) { x = 100 + Math.random() * 700; y = 100 + Math.random() * 400; valid = nodes.every(n => Math.sqrt(Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2)) > 75); attempts++; }
-        const isDump = i < 2; let shobaType = 'bench', energy = 0, maxEnergy = 0, generation = 0;
-        if (isDump) { shobaType = 'dump'; energy = 10; maxEnergy = 500; generation = 0; } 
+        const isDump = i < 2; let shobaType = 'epithelium', energy = 0, maxEnergy = 0, generation = 0;
+        if (isDump) { shobaType = 'necrosis'; energy = 10; maxEnergy = 500; generation = 0; } 
         else {
           const rand = Math.random();
-          if (rand < 0.6) { shobaType = 'bench'; energy = Math.floor(Math.random() * 11) + 10; maxEnergy = 30; generation = 3; } 
-          else if (rand < 0.9) { shobaType = 'underpass'; energy = Math.floor(Math.random() * 16) + 20; maxEnergy = 60; generation = 6; } 
-          else { shobaType = 'ruin'; energy = Math.floor(Math.random() * 21) + 30; maxEnergy = 100; generation = 10; }
+          if (rand < 0.6) { shobaType = 'epithelium'; energy = Math.floor(Math.random() * 11) + 10; maxEnergy = 30; generation = 3; } 
+          else if (rand < 0.9) { shobaType = 'muscle'; energy = Math.floor(Math.random() * 16) + 20; maxEnergy = 60; generation = 6; } 
+          else { shobaType = 'organ'; energy = Math.floor(Math.random() * 21) + 30; maxEnergy = 100; generation = 10; }
         }
         nodes.push({ id: idCounter++, x, y, owner: 0, energy, maxEnergy, generation, type: isDump ? 'dump' : 'normal', shobaType, level: 1, mode: 'normal' });
       }
@@ -239,7 +235,7 @@
 
       const visited = new Set();
       const dfs = (id) => { if (visited.has(id)) return; visited.add(id); edges.forEach(e => { if (e.s === id) dfs(e.t); if (e.t === id) dfs(e.s); }); };
-      dfs(1); if (visited.size < nodes.length) return generateMap(playerCount); 
+      dfs(1); if (visited.size < nodes.length) return generateMap(actualPlayers, isTeamBattle); 
       const mapData = { nodes, edges }; spawnItem(mapData); return mapData;
     };
 
@@ -261,7 +257,7 @@
           if (bestMineNode) tryUseChip('MINE_BOOST', bestMineNode.id, p);
         }
         if (pChips.includes('SABOTAGE')) {
-          const bestSabotageNode = state.nodes.filter(n => n.owner !== p && n.owner !== 0 && n.type !== 'item' && n.mode === 'normal').sort((a, b) => b.generation - a.generation)[0];
+          const bestSabotageNode = state.nodes.filter(n => isEnemy(n.owner, p, state.isTeamBattle) && n.type !== 'item' && n.mode === 'normal').sort((a, b) => b.generation - a.generation)[0];
           if (bestSabotageNode) tryUseChip('SABOTAGE', bestSabotageNode.id, p);
         }
         myNodes.forEach(node => {
@@ -269,22 +265,35 @@
           const ignoreOneWay = node.mode === 'long_range';
           const adjNodes = getTargetableNodes(node.id, state.nodes, state.edges, 1, ignoreOneWay);
           const dist2Nodes = getTargetableNodes(node.id, state.nodes, state.edges, 2, ignoreOneWay);
-          const threats = adjNodes.filter(n => n.owner !== p && n.owner !== 0 && n.type !== 'item' && n.energy > node.energy + 20);
+          const threats = adjNodes.filter(n => isEnemy(n.owner, p, state.isTeamBattle) && n.type !== 'item' && n.energy > node.energy + 20);
+          
           if (threats.length > 0 && node.energy >= 10 && Math.random() < 0.7) {
             threats.sort((a, b) => b.energy - a.energy); cmds.push({ type: 'cut', nodeId: node.id, targetId: threats[0].id, playerId: p });
             if (pChips.includes('EMP')) tryUseChip('EMP', threats[0].id, p); return; 
           }
           if (node.level < 3 && node.energy >= 60 && threats.length === 0) { cmds.push({ type: 'upgrade', nodeId: node.id, playerId: p }); return; }
-          const hasAdjTarget = adjNodes.some(n => n.owner !== p); const hasDist2Target = dist2Nodes.some(n => n.owner !== p && !adjNodes.find(an => an.id === n.id));
+          
+          const hasAdjTarget = adjNodes.some(n => n.owner !== p); 
+          const hasDist2Target = dist2Nodes.some(n => n.owner !== p && !adjNodes.find(an => an.id === n.id));
           if (node.mode === 'normal') { if (!hasAdjTarget && hasDist2Target && Math.random() < 0.8) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; } } 
           else if (node.mode === 'long_range') { if (hasAdjTarget || !hasDist2Target) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; } }
+          
           if (node.energy < 20) return; 
-          const hops = node.mode === 'long_range' ? 2 : 1; const targets = hops === 1 ? adjNodes : dist2Nodes; const validTargets = targets.filter(n => n.owner !== p);
+          const hops = node.mode === 'long_range' ? 2 : 1; const targets = hops === 1 ? adjNodes : dist2Nodes; 
+          const validTargets = targets.filter(n => n.owner !== p);
+
           if (validTargets.length > 0) {
             const scoredTargets = validTargets.map(t => {
               let score = 0;
-              if (t.type === 'item') score += 1000; else if (t.type === 'dump') score += 900; 
-              else if (t.owner === 0) score += 500 - t.energy; else if (t.type === 'base') score += 800 - t.energy; else score += 300 - t.energy; 
+              if (t.type === 'item') score += 1000; 
+              else if (t.owner === 0) score += 500 - t.energy; 
+              else if (isEnemy(t.owner, p, state.isTeamBattle)) {
+                  if (t.type === 'base') score += 800 - t.energy;
+                  else score += 300 - t.energy;
+              } else if (isAlly(t.owner, p, state.isTeamBattle)) {
+                  score += 250 - t.energy; 
+                  if (t.type === 'base' && t.energy < 50) score += 900; 
+              }
               const requiredEnergy = hops === 2 ? t.energy / (1 - getLossRate(node.level, state.weather)) : t.energy;
               if (node.energy > requiredEnergy) score += 200; 
               return { target: t, score };
@@ -293,7 +302,10 @@
             let amount = Math.floor(node.energy * 0.5); let required = bestTarget.energy + 5;
             if (hops === 2) required = Math.ceil(required / (1 - getLossRate(node.level, state.weather)));
             if (node.energy > required && required > amount) amount = required;
-            if (pChips.includes('ATK_BOOST') && bestTarget.type !== 'item' && bestTarget.energy > amount) tryUseChip('ATK_BOOST', node.id, p);
+            
+            if (pChips.includes('ATK_BOOST') && bestTarget.type !== 'item' && bestTarget.energy > amount && !isAlly(bestTarget.owner, p, state.isTeamBattle)) {
+                tryUseChip('ATK_BOOST', node.id, p);
+            }
             let isStealth = false; if (pChips.includes('STEALTH') && bestTarget.owner !== 0) if (tryUseChip('STEALTH', undefined, p)) isStealth = true;
             cmds.push({ type: 'move', nodeId: node.id, targetId: bestTarget.id, amount, playerId: p, isStealth });
           }
@@ -308,7 +320,7 @@
 
     const simulateTurn = (state, allCommands) => {
       let next = JSON.parse(JSON.stringify(state));
-      let animData = { prep: [], movements: [], combats: [], mines: [], captures: [], items: [], weatherDamages: [], trashBonuses: [] };
+      let animData = { prep: [], movements: [], combats: [], mines: [], captures: [], items: [], weatherDamages: [], trashBonuses: [], immuneAttacks: [] };
 
       const activeBoosts = new Set(), activeEmps = new Set(), activeMineBoosts = new Set(), activeAtkBoosts = new Set(), activeSabotages = new Set();
 
@@ -336,11 +348,10 @@
         }
       });
 
-      const currentDayIndex = (state.turn - 1) % 7;
-      const isTrashDay = state.trashDays.includes(currentDayIndex);
+      const isTrashDay = state.turn === state.nextTrashTurn;
 
       next.nodes.forEach(node => {
-        if (state.weather === 'cold' && node.level === 1 && node.owner !== 0 && node.type !== 'item' && node.type !== 'dump') {
+        if (state.weather === 'fever' && node.level === 1 && node.owner !== 0 && node.type !== 'item' && node.type !== 'dump') {
            const dmg = Math.min(node.energy, 5);
            if (dmg > 0) { node.energy -= dmg; animData.weatherDamages.push({ nodeId: node.id, amount: dmg }); }
         }
@@ -386,124 +397,169 @@
         const nodeInflows = inflows[node.id];
         const originalEnergy = node.energy;
         const originalOwner = node.owner;
+        const originalTeam = getTeam(originalOwner, state.isTeamBattle);
 
         let defEnergy = node.energy;
         
-        if (node.owner !== 0 && nodeInflows[node.owner] > 0) {
-          defEnergy += nodeInflows[node.owner];
-          nodeInflows[node.owner] = 0; 
+        for(let i=1; i<=state.playerCount; i++) {
+            if (node.owner !== 0 && getTeam(i, state.isTeamBattle) === originalTeam && nodeInflows[i] > 0) {
+                defEnergy += nodeInflows[i];
+                nodeInflows[i] = 0;
+            }
+        }
+
+        let attackTeams = {};
+        let playerInflows = {};
+        for(let i=1; i<=state.playerCount; i++) {
+            if(nodeInflows[i] > 0) {
+                const t = getTeam(i, state.isTeamBattle);
+                if (!attackTeams[t]) attackTeams[t] = 0;
+                
+                let multiplier = 1;
+                if (node.level === 2) multiplier = 0.8;
+                if (node.level === 3) multiplier = 0.6;
+                
+                const mitigatedForce = Math.floor(nodeInflows[i] * multiplier);
+                
+                attackTeams[t] += mitigatedForce;
+                playerInflows[i] = mitigatedForce;
+            }
         }
 
         let attackers = [];
-        for(let i=1; i<=state.playerCount; i++) {
-          if(nodeInflows[i] > 0) attackers.push({ p: i, f: nodeInflows[i] });
-        }
-        
-        if(attackers.length === 0) {
-          if (defEnergy !== originalEnergy) {
-            node.energy = Math.min(node.maxEnergy, defEnergy);
-            animData.combats.push({ nodeId: node.id, force: node.energy - originalEnergy, attacker: node.owner, clashAmount: 0 });
-          }
-          return;
+        for (let t in attackTeams) {
+            attackers.push({ t: parseInt(t), f: attackTeams[t] });
         }
 
-        let clashAmount = 0;
-        if (attackers.length > 1) {
-           clashAmount = attackers.reduce((sum, a) => sum + a.f, 0) + (defEnergy > 0 ? 10 : 0);
-        } else if (attackers.length === 1 && node.owner !== attackers[0].p && node.owner !== 0) {
-           clashAmount = attackers[0].f;
-        }
-
-        while (defEnergy > 0 && attackers.length > 0) {
-            const idx = Math.floor(Math.random() * attackers.length);
-            attackers[idx].f -= 1;
-            defEnergy -= 1;
-            if (attackers[idx].f <= 0) {
-                attackers.splice(idx, 1);
+        if (attackers.length === 0) {
+            if (defEnergy !== originalEnergy) {
+                node.energy = Math.min(node.maxEnergy, defEnergy);
+                animData.combats.push({ nodeId: node.id, force: node.energy - originalEnergy, attacker: node.owner, clashAmount: 0 });
             }
+            return;
         }
 
-        if (defEnergy > 0) {
-            node.energy = Math.min(node.maxEnergy, defEnergy);
-        } else {
-            attackers.sort((a, b) => b.f - a.f);
-            
-            if (attackers.length === 0) {
-                if (node.type === 'item') {
-                    node.energy = 0;
-                } else {
-                    node.owner = 0;
-                    node.energy = 0;
-                    node.mode = 'normal';
-                    animData.captures.push({ nodeId: node.id, newOwner: 0 });
+        attackers.sort((a, b) => b.f - a.f);
+        let topAtkTeam = attackers[0].t;
+        let topAtkForce = attackers[0].f;
+        let sumOthers = 0;
+        for(let i=1; i<attackers.length; i++) sumOthers += attackers[i].f;
+
+        let netAtkForce = topAtkForce - sumOthers;
+        let clashAmount = attackers.length > 1 ? sumOthers * 2 + 10 : 0;
+        if (attackers.length === 1 && node.owner !== 0) clashAmount = topAtkForce;
+
+        if (netAtkForce > 0) {
+            let topPlayer = 1;
+            let maxPForce = -1;
+            for(let i=1; i<=state.playerCount; i++) {
+                if (getTeam(i, state.isTeamBattle) === topAtkTeam && playerInflows[i] > maxPForce) {
+                    maxPForce = playerInflows[i];
+                    topPlayer = i;
                 }
+            }
+
+            let eDiff = defEnergy - originalEnergy;
+            node.energy = defEnergy - netAtkForce;
+
+            if (node.energy <= 0 && node.type === 'item') {
+                 next.chips[topPlayer].push(node.item);
+                 animData.items.push({ x: node.x, y: node.y, item: node.item, owner: topPlayer });
+                 node.isCollected = true; 
+                 node.energy = 0;
+                 animData.combats.push({ nodeId: node.id, force: netAtkForce, attacker: topPlayer, clashAmount });
+            } else if (node.energy < 0) {
+                 node.owner = topPlayer;
+                 node.energy = Math.abs(node.energy); 
+                 if (node.energy > node.maxEnergy) node.energy = node.maxEnergy;
+                 node.mode = 'normal';
+                 animData.captures.push({ nodeId: node.id, newOwner: topPlayer });
+                 animData.combats.push({ nodeId: node.id, force: netAtkForce, attacker: topPlayer, clashAmount });
+            } else if (node.energy === 0) {
+                 node.owner = 0;
+                 node.mode = 'normal'; 
+                 animData.captures.push({ nodeId: node.id, newOwner: 0 });
+                 animData.combats.push({ nodeId: node.id, force: netAtkForce, attacker: topPlayer, clashAmount });
             } else {
-                const top = attackers[0];
-                const secondForce = attackers.length > 1 ? attackers[1].f : 0;
-                const diff = top.f - secondForce; 
-                
-                if (diff > 0) {
-                    if (node.type === 'item') {
-                        next.chips[top.p].push(node.item);
-                        animData.items.push({ x: node.x, y: node.y, item: node.item, owner: top.p });
-                        node.isCollected = true; 
-                        node.energy = 0;
-                    } else {
-                        if (node.owner !== top.p) {
-                            node.owner = top.p;
-                            node.mode = 'normal';
-                            animData.captures.push({ nodeId: node.id, newOwner: top.p });
-                        }
-                        node.energy = Math.min(node.maxEnergy, diff);
-                    }
-                } else {
-                    if (node.type !== 'item') {
-                        node.owner = 0;
-                        node.energy = 0;
-                        node.mode = 'normal';
-                        animData.captures.push({ nodeId: node.id, newOwner: 0 });
-                    }
-                }
+                 eDiff = node.energy - originalEnergy;
+                 if (eDiff > 0) {
+                     animData.combats.push({ nodeId: node.id, force: eDiff, attacker: node.owner, clashAmount });
+                 } else {
+                     animData.combats.push({ nodeId: node.id, force: Math.abs(eDiff), attacker: -1, clashAmount });
+                 }
             }
-        }
-
-        if (!node.isCollected && originalOwner === node.owner) {
-            const eDiff = node.energy - originalEnergy;
+        } else {
+            let eDiff = defEnergy - originalEnergy;
+            node.energy = Math.min(node.maxEnergy, defEnergy);
             if (eDiff > 0) {
                 animData.combats.push({ nodeId: node.id, force: eDiff, attacker: node.owner, clashAmount });
-            } else if (eDiff < 0) {
-                animData.combats.push({ nodeId: node.id, force: Math.abs(eDiff), attacker: -1, clashAmount }); 
             } else {
                 animData.combats.push({ nodeId: node.id, force: 0, attacker: 0, clashAmount });
-            }
-        } else if (!node.isCollected && originalOwner !== node.owner) {
-            if (node.owner === 0) {
-                animData.combats.push({ nodeId: node.id, force: 0, attacker: 0, clashAmount });
-            } else {
-                animData.combats.push({ nodeId: node.id, force: node.energy, attacker: node.owner, clashAmount }); 
             }
         }
       });
 
+      if (state.immuneTargets && state.immuneTargets.length > 0) {
+         state.immuneTargets.forEach(targetId => {
+             const node = next.nodes.find(n => n.id === targetId);
+             if (node && node.owner !== 0 && node.type !== 'item') {
+                 const lostAmount = Math.ceil(node.energy / 2);
+                 node.energy -= lostAmount;
+                 animData.immuneAttacks.push({ nodeId: node.id, amount: lostAmount });
+             }
+         });
+      }
+      
+      if (next.turn % 3 === 0) {
+         const validTargets = next.nodes.filter(n => n.type !== 'item' && n.type !== 'dump' && n.owner !== 0);
+         const numTargets = Math.min(3, validTargets.length);
+         const shuffled = validTargets.sort(() => 0.5 - Math.random());
+         next.immuneTargets = shuffled.slice(0, numTargets).map(n => n.id);
+      } else {
+         next.immuneTargets = [];
+      }
+
       next.weather = state.forecast;
       next.forecast = generateWeather();
+      
+      if (isTrashDay) {
+         next.nextTrashTurn = state.turn + Math.floor(Math.random() * 3) + 3;
+      }
+      
       if (next.turn % 3 === 0) spawnItem(next);
 
-      const nextAlivePlayers = [];
-      for(let p=1; p<=state.playerCount; p++) if (next.nodes.some(n => n.type === 'base' && n.id === p && n.owner === p)) nextAlivePlayers.push(p);
-
       let winner = null, isGameOver = false;
-      if (!nextAlivePlayers.includes(1)) isGameOver = true; 
-      else if (nextAlivePlayers.length === 1 && nextAlivePlayers[0] === 1) { winner = 1; isGameOver = true; } 
-      else if (nextAlivePlayers.length === 0) isGameOver = true; 
-      else if (nextAlivePlayers.length === 1) { winner = nextAlivePlayers[0]; isGameOver = true; }
 
-      next.alivePlayers = nextAlivePlayers;
+      if (state.isTeamBattle) {
+        const base1 = next.nodes.find(n => n.id === 1);
+        const base2 = next.nodes.find(n => n.id === 2);
+        const base3 = next.nodes.find(n => n.id === 3);
+        const base4 = next.nodes.find(n => n.id === 4);
+
+        const team2Defeated = (base3 && getTeam(base3.owner, true) !== 2) || (base4 && getTeam(base4.owner, true) !== 2);
+        const team1Defeated = (base1 && getTeam(base1.owner, true) !== 1) || (base2 && getTeam(base2.owner, true) !== 1);
+
+        if (team2Defeated && !team1Defeated) { winner = 1; isGameOver = true; } 
+        else if (team1Defeated && !team2Defeated) { winner = 2; isGameOver = true; } 
+        else if (team1Defeated && team2Defeated) { winner = null; isGameOver = true; } 
+
+        next.alivePlayers = [1, 2, 3, 4]; 
+      } else {
+        const nextAlivePlayers = [];
+        for(let p=1; p<=state.playerCount; p++) if (next.nodes.some(n => n.type === 'base' && n.id === p && n.owner === p)) nextAlivePlayers.push(p);
+
+        if (!nextAlivePlayers.includes(1)) isGameOver = true; 
+        else if (nextAlivePlayers.length === 1 && nextAlivePlayers[0] === 1) { winner = 1; isGameOver = true; } 
+        else if (nextAlivePlayers.length === 0) isGameOver = true; 
+        else if (nextAlivePlayers.length === 1) { winner = nextAlivePlayers[0]; isGameOver = true; }
+        
+        next.alivePlayers = nextAlivePlayers;
+      }
+
       next.winner = winner; next.isGameOver = isGameOver; next.turn += 1;
       return { nextState: next, animData };
     };
 
-    // --- メインコンポーネント ---
     function NodeWars() {
       const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
 
@@ -533,26 +589,53 @@
 
       const [confirmQuit, setConfirmQuit] = useState(false);
 
-      // --- レイアウト・リサイズ・カメラ用 State と Ref ---
-      const [layoutMode, setLayoutMode] = useState('auto'); // 'auto', 'mobile', 'pc'
+      const [layoutMode, setLayoutMode] = useState('auto'); 
       const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-      const [bottomPanelHeight, setBottomPanelHeight] = useState(160);
+      const [bottomPanelHeight, setBottomPanelHeight] = useState(() => window.innerWidth < 768 ? 220 : 160);
       const [mapSize, setMapSize] = useState({ w: MAP_W, h: MAP_H });
+
+      const [lobbyState, setLobbyState] = useState('disconnected');
+      const [roomList, setRoomList] = useState([]);
+      const [playerName, setPlayerName] = useState('バクテリア');
+      const [roomNameSuffix, setRoomNameSuffix] = useState('の宿主');
+      const [isPrivate, setIsPrivate] = useState(false);
+      const [copiedText, setCopiedText] = useState(false);
       
       const mapContainerRef = useRef(null);
       const canvasRef = useRef(null);
       const bgImageRef = useRef(null);
 
-      // MISSING REFS ADDED BACK HERE
       const animRef = useRef({ active: false, progress: 0, data: null });
       const peerRef = useRef(null);
       const connectionsRef = useRef([]);
 
-      // カメラ情報 { x: 論理X座標, y: 論理Y座標, scale: ズーム倍率 }
       const cameraRef = useRef({ x: 0, y: 0, scale: 1 });
       const dragInfo = useRef({ isDragging: false, wasDragged: false, startX: 0, startY: 0, startCamX: 0, startCamY: 0 });
       const touchInfo = useRef({ mode: 'none', initialDist: 0, startScale: 1, startCamX: 0, startCamY: 0, vx: 0, vy: 0 });
       const resizerDragInfo = useRef({ isDragging: false, startY: 0, startHeight: 0 });
+
+      const stateRefCurrent = useRef(gameState);
+      const phaseRefCurrent = useRef(phase);
+      const gameDataRefCurrent = useRef(gameData);
+      const gameModeRefCurrent = useRef(gameMode);
+      const tutorialStageRefCurrent = useRef(tutorialStage);
+
+      const LOBBY_ID = "micro-survival-lobby-2026-v1";
+      const lobbyStateRef = useRef('disconnected');
+      const lobbyPeerRef = useRef(null);
+      const lobbyConnRef = useRef(null);
+      const serverConnectionsRef = useRef([]); 
+      const activeRoomsRef = useRef([]); 
+      const isPrivateRef = useRef(false);
+      const playerNameRef = useRef('バクテリア');
+
+      useEffect(() => { stateRefCurrent.current = gameState; }, [gameState]);
+      useEffect(() => { phaseRefCurrent.current = phase; }, [phase]);
+      useEffect(() => { gameDataRefCurrent.current = gameData; }, [gameData]);
+      useEffect(() => { gameModeRefCurrent.current = gameMode; }, [gameMode]);
+      useEffect(() => { tutorialStageRefCurrent.current = tutorialStage; }, [tutorialStage]);
+      useEffect(() => { isPrivateRef.current = isPrivate; }, [isPrivate]);
+      useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
 
       useEffect(() => {
         const handleResize = () => setWindowWidth(window.innerWidth);
@@ -563,7 +646,6 @@
       const isMobile = layoutMode === 'mobile' || (layoutMode === 'auto' && windowWidth < 768);
       const rx = (mobileClass, pcClass) => isMobile ? mobileClass : pcClass;
 
-      // コンテナサイズ監視とカメラ初期化
       const initializedCamera = useRef(false);
       useEffect(() => {
         const resizeObserver = new ResizeObserver(entries => {
@@ -575,7 +657,7 @@
         });
         if (mapContainerRef.current) resizeObserver.observe(mapContainerRef.current);
         return () => resizeObserver.disconnect();
-      }, [phase]); // 画面切り替わりで再監視
+      }, [phase]); 
 
       const resetCamera = () => {
         if (!mapContainerRef.current) return;
@@ -604,7 +686,6 @@
         cameraRef.current = { scale: newScale, x: logicalX - cx / newScale, y: logicalY - cy / newScale };
       };
 
-      // --- ポインター（マウス/タッチ）入力処理 ---
       const getPointerPos = (e) => {
         if (!canvasRef.current) return { vx: 0, vy: 0, lx: 0, ly: 0 };
         const rect = canvasRef.current.getBoundingClientRect();
@@ -629,8 +710,8 @@
         const { vx, vy, lx, ly } = getPointerPos(e);
         if (!gameState) return;
 
-        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
-        const clickedNode = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges, gameState.isTeamBattle);
+        const clickedNode = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && TISSUE_INFO[n.shobaType] ? TISSUE_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
 
         if (!clickedNode) {
           dragInfo.current = { isDragging: true, wasDragged: false, startX: vx, startY: vy, startCamX: cameraRef.current.x, startCamY: cameraRef.current.y };
@@ -649,8 +730,8 @@
           cameraRef.current.y = dragInfo.current.startCamY - dy / cameraRef.current.scale;
         } else {
           if (phase !== 'INPUT' || !gameState) return;
-          const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
-          const hovered = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+          const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges, gameState.isTeamBattle);
+          const hovered = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && TISSUE_INFO[n.shobaType] ? TISSUE_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
           setHoveredNode(hovered ? hovered.id : null);
         }
       };
@@ -662,7 +743,6 @@
         }
       };
 
-      // スクロール・ピンチズーム対応
       useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas || phase === 'SETUP' || phase === 'WAITING_ROOM') return;
@@ -722,7 +802,6 @@
         };
       }, [phase]);
 
-      // --- リサイザー処理 ---
       const handleResizerPointerDown = (e) => {
         e.preventDefault();
         resizerDragInfo.current = { isDragging: true, startY: e.clientY || (e.touches && e.touches[0].clientY), startHeight: bottomPanelHeight };
@@ -752,19 +831,6 @@
         document.removeEventListener('touchend', handleResizerPointerUp);
       };
 
-      // --- その他通信・ゲームロジック ---
-      const stateRefCurrent = useRef(gameState);
-      const phaseRefCurrent = useRef(phase);
-      const gameDataRefCurrent = useRef(gameData);
-      const gameModeRefCurrent = useRef(gameMode);
-      const tutorialStageRefCurrent = useRef(tutorialStage);
-
-      useEffect(() => { stateRefCurrent.current = gameState; }, [gameState]);
-      useEffect(() => { phaseRefCurrent.current = phase; }, [phase]);
-      useEffect(() => { gameDataRefCurrent.current = gameData; }, [gameData]);
-      useEffect(() => { gameModeRefCurrent.current = gameMode; }, [gameMode]);
-      useEffect(() => { tutorialStageRefCurrent.current = tutorialStage; }, [tutorialStage]);
-
       useEffect(() => {
         const loadImages = async () => {
           const images = {};
@@ -791,12 +857,127 @@
         }
       }, [gameState?.weather]);
 
+      const broadcastRooms = () => {
+        serverConnectionsRef.current.forEach(conn => {
+          if (conn.open) conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current });
+        });
+        setRoomList([...activeRoomsRef.current]);
+      };
+
+      const initLobby = () => {
+        setLobbyState('initializing');
+        lobbyStateRef.current = 'initializing';
+        const peer = new Peer(LOBBY_ID);
+        
+        peer.on('open', () => {
+          setLobbyState('is_server');
+          lobbyStateRef.current = 'is_server';
+          lobbyPeerRef.current = peer;
+          
+          peer.on('connection', (conn) => {
+            serverConnectionsRef.current.push(conn);
+            conn.on('open', () => {
+              conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current });
+            });
+            conn.on('data', (data) => {
+              if (data.type === 'REGISTER_ROOM') {
+                conn.hostedRoomId = data.room.roomId; 
+                const idx = activeRoomsRef.current.findIndex(r => r.roomId === data.room.roomId);
+                if (idx !== -1) activeRoomsRef.current[idx] = data.room;
+                else activeRoomsRef.current.push(data.room);
+                broadcastRooms();
+              } else if (data.type === 'UNREGISTER_ROOM') {
+                activeRoomsRef.current = activeRoomsRef.current.filter(r => r.roomId !== data.roomId);
+                broadcastRooms();
+              } else if (data.type === 'UPDATE_ROOM') {
+                const idx = activeRoomsRef.current.findIndex(r => r.roomId === data.room.roomId);
+                if (idx !== -1) {
+                   activeRoomsRef.current[idx] = data.room;
+                   broadcastRooms();
+                }
+              }
+            });
+            conn.on('close', () => {
+              serverConnectionsRef.current = serverConnectionsRef.current.filter(c => c !== conn);
+              if (conn.hostedRoomId) {
+                 activeRoomsRef.current = activeRoomsRef.current.filter(r => r.roomId !== conn.hostedRoomId);
+                 broadcastRooms();
+              }
+            });
+          });
+        });
+
+        peer.on('error', (err) => {
+          if (err.type === 'unavailable-id') {
+            const clientPeer = new Peer();
+            lobbyPeerRef.current = clientPeer;
+            clientPeer.on('open', () => {
+              setLobbyState('is_client');
+              lobbyStateRef.current = 'is_client';
+              const conn = clientPeer.connect(LOBBY_ID);
+              lobbyConnRef.current = conn;
+              
+              conn.on('data', (data) => {
+                if (data.type === 'ROOM_LIST') {
+                  setRoomList(data.rooms);
+                }
+              });
+              
+              conn.on('close', () => {
+                setLobbyState('disconnected');
+                lobbyStateRef.current = 'disconnected';
+                setTimeout(() => {
+                   if (gameModeRefCurrent.current === 'MULTI') initLobby();
+                }, 1000 + Math.random() * 2000);
+              });
+            });
+          }
+        });
+      };
+
+      const closeLobby = () => {
+        if (lobbyPeerRef.current) {
+          lobbyPeerRef.current.destroy();
+          lobbyPeerRef.current = null;
+        }
+        setLobbyState('disconnected');
+        lobbyStateRef.current = 'disconnected';
+        serverConnectionsRef.current = [];
+        activeRoomsRef.current = [];
+        setRoomList([]);
+      };
+
+      useEffect(() => {
+        if (gameMode === 'MULTI' && lobbyStateRef.current === 'disconnected') {
+           initLobby();
+        } else if (gameMode !== 'MULTI' && lobbyStateRef.current !== 'disconnected') {
+           closeLobby();
+        }
+      }, [gameMode]);
+
+      const updateLobbyRoom = (action, roomData) => {
+        if (isPrivateRef.current && action !== 'UNREGISTER_ROOM') return; 
+
+        if (lobbyStateRef.current === 'is_server') {
+           if (action === 'REGISTER_ROOM' || action === 'UPDATE_ROOM') {
+              const idx = activeRoomsRef.current.findIndex(r => r.roomId === roomData.roomId);
+              if (idx !== -1) activeRoomsRef.current[idx] = roomData;
+              else activeRoomsRef.current.push(roomData);
+           } else if (action === 'UNREGISTER_ROOM') {
+              activeRoomsRef.current = activeRoomsRef.current.filter(r => r.roomId !== roomData.roomId);
+           }
+           broadcastRooms();
+        } else if (lobbyStateRef.current === 'is_client' && lobbyConnRef.current?.open) {
+           lobbyConnRef.current.send({ type: action, room: roomData, roomId: roomData?.roomId });
+        }
+      };
+
       const setupDataChannel = (conn) => {
         connectionsRef.current.push(conn);
         conn.on('open', () => {
           if (gameModeRefCurrent.current === 'CLIENT') {
             setPhase('WAITING_ROOM');
-            sendMessage({ type: 'JOIN_REQ', uid: myUid });
+            sendMessage({ type: 'JOIN_REQ', uid: myUid, name: playerNameRef.current });
           }
         });
         conn.on('data', (data) => {
@@ -823,10 +1004,25 @@
             if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
               if (!gData.playerUids.includes(data.uid)) {
                 const newNum = gData.playerUids.length + 1;
-                const newGameData = { ...gData, players: { ...gData.players, [data.uid]: newNum }, playerUids: [...gData.playerUids, data.uid] };
+                const newGameData = { 
+                  ...gData, 
+                  players: { ...gData.players, [data.uid]: newNum }, 
+                  playerNames: { ...gData.playerNames, [data.uid]: data.name || `バクテリア${newNum}` },
+                  playerUids: [...gData.playerUids, data.uid] 
+                };
                 setGameData(newGameData);
                 sendMessage({ type: 'JOIN_ACK', targetUid: data.uid, playerNum: newNum, gameData: newGameData });
                 sendMessage({ type: 'ROOM_UPDATE', gameData: newGameData });
+
+                updateLobbyRoom('UPDATE_ROOM', {
+                  roomId: roomId,
+                  roomName: newGameData.roomName,
+                  hostName: newGameData.hostName,
+                  playerCount: newGameData.playerCount,
+                  currentPlayers: newGameData.playerUids.length,
+                  isTeamBattle: newGameData.isTeamBattle,
+                  status: newGameData.playerUids.length >= newGameData.playerCount ? 'PLAYING' : 'WAITING'
+                });
               }
             }
           } else if (data.type === 'CMD_SUBMIT') {
@@ -843,15 +1039,31 @@
         }
       };
 
-      const startHosting = (pCount) => {
+      const startHosting = (pCount, isTeam = false) => {
         setGameMode('HOST'); setMyPlayerNum(1); setErrorMsg(''); setPhase('WAITING_ROOM'); connectionsRef.current = [];
         const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
         setRoomId(newRoomId);
         const peer = new Peer(`homeless-wars-${newRoomId}`);
         peerRef.current = peer;
         peer.on('open', (id) => {
-          const initialGameData = { hostUid: myUid, status: 'WAITING', playerCount: pCount, players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [], commands: {}, turnReady: {} };
+          const fullRoomName = `${playerNameRef.current}${roomNameSuffix}`;
+          const initialGameData = { 
+            hostUid: myUid, hostName: playerNameRef.current, roomName: fullRoomName,
+            status: 'WAITING', playerCount: pCount, isTeamBattle: isTeam, 
+            players: { [myUid]: 1 }, playerNames: { [myUid]: playerNameRef.current }, playerUids: [myUid], 
+            cpuPlayers: [], commands: {}, turnReady: {} 
+          };
           setGameData(initialGameData);
+          
+          updateLobbyRoom('REGISTER_ROOM', {
+            roomId: newRoomId,
+            roomName: fullRoomName,
+            hostName: playerNameRef.current,
+            playerCount: pCount,
+            currentPlayers: 1,
+            isTeamBattle: isTeam,
+            status: 'WAITING'
+          });
         });
         peer.on('connection', (conn) => { setupDataChannel(conn); });
         peer.on('error', (err) => { setErrorMsg('通信サーバーとの接続に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
@@ -885,7 +1097,7 @@
         setPhase('ANIMATING');
         animRef.current = { active: true, progress: 0, data: animData };
         const startTime = performance.now();
-        const duration = 7500; 
+        const duration = 6500; // 修正: テンポアップのため7500msから6500msへ短縮
         const animate = (time) => {
           let p = Math.min((time - startTime) / duration, 1.0);
           animRef.current.progress = p;
@@ -923,8 +1135,21 @@
         return () => cancelAnimationFrame(animationFrameId);
       }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum, isMobile, mapSize]); 
 
+      const copyToClipboard = (text) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try { document.execCommand('copy'); setCopiedText(true); setTimeout(() => setCopiedText(false), 2000); } 
+        catch (err) { console.error(err); }
+        document.body.removeChild(textArea);
+      };
+
       const quitGame = () => {
         setConfirmQuit(false);
+        if (gameModeRefCurrent.current === 'HOST' && roomId) {
+            updateLobbyRoom('UNREGISTER_ROOM', { roomId });
+        }
         if (peerRef.current) peerRef.current.destroy();
         connectionsRef.current.forEach(c => c.close()); connectionsRef.current = [];
         setPhase('SETUP'); setGameMode(null); setGameState(null); setGameData(null); setRoomId(''); setPlayerCommands([]); setUiState({ mode: 'IDLE', nodeId: null, targetId: null, maxAmount: 0 });
@@ -936,75 +1161,112 @@
         const setupData = stageDef.setup();
         const alivePlayers = Array.from({length: setupData.playerCount}, (_, i) => i + 1);
         const chips = {}; for (let i=1; i<=setupData.playerCount; i++) chips[i] = [];
-        const initialState = { nodes: setupData.nodes, edges: setupData.edges, turn: 1, weather: 'sunny', forecast: 'sunny', trashDays: [], playerCount: setupData.playerCount, alivePlayers, winner: null, isGameOver: false, chips };
+        const initialState = { nodes: setupData.nodes, edges: setupData.edges, turn: 1, weather: 'normal', forecast: 'normal', nextTrashTurn: Math.floor(Math.random() * 3) + 3, playerCount: setupData.playerCount, alivePlayers, winner: null, isGameOver: false, chips, isTeamBattle: setupData.isTeamBattle || false, immuneTargets: [] };
         setGameState(initialState); setPlayerCommands([]); setPhase('INPUT'); initializedCamera.current = false;
       };
 
-      const startSoloGame = (playerCount) => {
+      const startSoloGame = (playerCount, isTeamBattle = false) => {
         setGameMode('SOLO'); setMyPlayerNum(1);
-        const mapData = generateMap(playerCount);
-        const alivePlayers = Array.from({length: playerCount}, (_, i) => i + 1);
-        const chips = {}; for (let i=1; i<=playerCount; i++) chips[i] = [];
-        const trashDays = []; while (trashDays.length < 2) { const r = Math.floor(Math.random() * 7); if (!trashDays.includes(r)) trashDays.push(r); } trashDays.sort((a, b) => a - b);
-        const initialState = { ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(), trashDays, playerCount, alivePlayers, winner: null, isGameOver: false, chips };
+        const actualCount = isTeamBattle ? 4 : playerCount;
+        const mapData = generateMap(actualCount, isTeamBattle);
+        const alivePlayers = Array.from({length: actualCount}, (_, i) => i + 1);
+        const chips = {}; for (let i=1; i<=actualCount; i++) chips[i] = [];
+        const initialState = { ...mapData, turn: 1, weather: 'normal', forecast: generateWeather(), nextTrashTurn: Math.floor(Math.random() * 3) + 3, playerCount: actualCount, alivePlayers, winner: null, isGameOver: false, chips, isTeamBattle, immuneTargets: [] };
         setGameState(initialState); setPlayerCommands([]); setPhase('INPUT'); initializedCamera.current = false;
       };
 
       const startGame = () => {
         if (gameMode !== 'HOST' || !gameData) return;
-        const mapData = generateMap(gameData.playerCount);
-        const alivePlayers = Array.from({length: gameData.playerCount}, (_, i) => i + 1);
-        const chips = {}; for (let i=1; i<=gameData.playerCount; i++) chips[i] = [];
-        const trashDays = []; while (trashDays.length < 2) { const r = Math.floor(Math.random() * 7); if (!trashDays.includes(r)) trashDays.push(r); } trashDays.sort((a, b) => a - b);
-        const initialState = { ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(), trashDays, playerCount: gameData.playerCount, alivePlayers, winner: null, isGameOver: false, chips };
+        const isTeamBattle = gameData.isTeamBattle || false;
+        const actualCount = isTeamBattle ? 4 : gameData.playerCount;
+        const mapData = generateMap(actualCount, isTeamBattle);
+        const alivePlayers = Array.from({length: actualCount}, (_, i) => i + 1);
+        const chips = {}; for (let i=1; i<=actualCount; i++) chips[i] = [];
+        const initialState = { ...mapData, turn: 1, weather: 'normal', forecast: generateWeather(), nextTrashTurn: Math.floor(Math.random() * 3) + 3, playerCount: actualCount, alivePlayers, winner: null, isGameOver: false, chips, isTeamBattle, immuneTargets: [] };
         const humanPlayerIds = Object.values(gameData.players); const cpuPlayers = alivePlayers.filter(p => !humanPlayerIds.includes(p));
         const newGameData = { ...gameData, cpuPlayers, status: 'PLAYING' };
         setGameData(newGameData); setGameState(initialState); setPhase('INPUT'); initializedCamera.current = false;
         sendMessage({ type: 'GAME_START', state: initialState, gameData: newGameData });
+        
+        updateLobbyRoom('UPDATE_ROOM', {
+          roomId: roomId,
+          roomName: gameData.roomName,
+          hostName: gameData.hostName,
+          playerCount: gameData.playerCount,
+          currentPlayers: gameData.playerUids.length,
+          isTeamBattle: gameData.isTeamBattle,
+          status: 'PLAYING'
+        });
       };
 
+      // 修正: APIキーをUI（プロンプト）で入力・保存する仕様に変更
       const handleAiAdvice = async () => {
         if (!gameState) return;
-        const GEMINI_API_KEY = "ここに_Gemini_APIキー_を貼り付ける";
-        if (!GEMINI_API_KEY || GEMINI_API_KEY === "ここに_Gemini_APIキー_を貼り付ける" || GEMINI_API_KEY === "") {
-          setAiAdvice("APIキーが設定されていないためAI参謀は利用できません。\nHTMLファイル内の GEMINI_API_KEY に取得したキーを貼り付けてください。");
-          setShowAiPanel(true); return;
+        
+        let GEMINI_API_KEY = localStorage.getItem('gemini_api_key');
+        if (!GEMINI_API_KEY) {
+          GEMINI_API_KEY = prompt("AI参謀を利用するには、Gemini APIキーを入力してください。\n（※キーはブラウザにのみ保存され、外部には送信されません）");
+          if (!GEMINI_API_KEY) return;
+          localStorage.setItem('gemini_api_key', GEMINI_API_KEY);
         }
+
         setIsAiLoading(true); setAiAdvice(null); setShowAiPanel(true);
-        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
+        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges, gameState.isTeamBattle);
         const visibleNodes = gameState.nodes.filter(n => visibleSet.has(n.id));
         const myNodes = visibleNodes.filter(n => n.owner === myPlayerNum);
-        const cpuNodes = visibleNodes.filter(n => n.owner !== myPlayerNum && n.owner !== 0 && n.type !== 'item');
+        const cpuNodes = visibleNodes.filter(n => isEnemy(n.owner, myPlayerNum, gameState.isTeamBattle) && n.type !== 'item');
         const neutralNodes = visibleNodes.filter(n => n.owner === 0 && n.type !== 'item');
         const myEnergy = myNodes.reduce((sum, n) => sum + n.energy, 0); const cpuEnergy = cpuNodes.reduce((sum, n) => sum + n.energy, 0);
-        const prompt = `現在ターン: ${gameState.turn}日目\n天候: ${getWeatherName(gameState.weather)}\nゴミ回収日: ${DAYS[gameState.trashDays[0]]}曜、${DAYS[gameState.trashDays[1]]}曜\n生存派閥数: ${gameState.alivePlayers.length}\n自派閥のショバ(拠点)数: ${myNodes.length} (総資源: ${myEnergy})\n視界内の敵ショバ数: ${cpuNodes.length} (総資源: ${cpuEnergy})\n視界内の未占領ショバ数: ${neutralNodes.length}\nあなたはホームレス地下帝国の冷徹な参謀です。上記の状況を元に、リーダー（プレイヤー）に向けて次の一手の戦術アドバイスを3〜4行程度で簡潔に提供してください。裏社会らしい荒々しくもクールな口調でお願いします。`;
+        
+        let teamInfo = "";
+        if (gameState.isTeamBattle) {
+            const myTeam = getTeam(myPlayerNum, true);
+            teamInfo = `\n【重要】今回は2vs2の混合感染（チーム戦）です！\nチーム1: バクテリア1, バクテリア2\nチーム2: バクテリア3, バクテリア4\nあなたのチームはチーム${myTeam}です。同盟菌の組織に菌を送ると回復(支援)になります。敵チームの初期臓器を片方でも制圧すれば勝利です！`;
+        }
+
+        const promptText = `現在ターン: ${gameState.turn}期\n生体反応: ${getWeatherName(gameState.weather)}\n壊死崩壊まで: あと ${gameState.nextTrashTurn - gameState.turn} 期\n生存派閥数: ${gameState.alivePlayers.length}\n自派閥の組織数: ${myNodes.length} (総菌数: ${myEnergy})\n視界内の敵組織数: ${cpuNodes.length} (総菌数: ${cpuEnergy})\n視界内の未占領組織数: ${neutralNodes.length}${teamInfo}\nあなたは人体に侵入した新種バクテリアの冷徹な軍師プラスミドです。上記の状況を元に、リーダー（プレイヤー）に向けて次の一手の戦術アドバイスを3〜4行程度で簡潔に提供してください。病原体らしい生々しくもクールな口調でお願いします。`;
+        
         try {
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
           });
-          const data = await res.json(); setAiAdvice(data.candidates?.[0]?.content?.parts?.[0]?.text || "通信エラー。");
-        } catch (e) { setAiAdvice("通信エラーが発生しました。"); } 
-        finally { setIsAiLoading(false); }
+          
+          if (!res.ok) {
+            if (res.status === 400 || res.status === 403) {
+              localStorage.removeItem('gemini_api_key');
+              setAiAdvice("APIキーが無効、またはアクセス権がありません。\nもう一度やり直して正しいキーを入力してください。");
+            } else {
+              setAiAdvice(`通信エラーが発生しました (Status: ${res.status})`);
+            }
+          } else {
+            const data = await res.json(); 
+            setAiAdvice(data.candidates?.[0]?.content?.parts?.[0]?.text || "応答が空でした。");
+          }
+        } catch (e) { 
+          setAiAdvice("通信に失敗しました。ネットワークを確認してください。"); 
+        } finally { 
+          setIsAiLoading(false); 
+        }
       };
 
       const handleCanvasClick = (e) => {
         if (dragInfo.current.wasDragged) { dragInfo.current.wasDragged = false; return; }
         if (phase !== 'INPUT' || !gameState.alivePlayers.includes(myPlayerNum)) return;
         const { lx, ly } = getPointerPos(e);
-        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
-        const clickedNode = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges, gameState.isTeamBattle);
+        const clickedNode = gameState.nodes.find(n => getDistance(n, {x: lx, y: ly}) < (n.shobaType && TISSUE_INFO[n.shobaType] ? TISSUE_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
 
         if (selectedChip) {
           const { id: chipId, idx: chipIdx } = selectedChip;
           if (chipId === 'EMP' || chipId === 'SABOTAGE') {
-            if (clickedNode && clickedNode.owner !== myPlayerNum && clickedNode.type !== 'item' && clickedNode.type !== 'dump') {
+            if (clickedNode && isEnemy(clickedNode.owner, myPlayerNum, gameState.isTeamBattle) && clickedNode.type !== 'item' && clickedNode.type !== 'dump') {
               if (playerCommands.some(c => c.type === 'use_chip' && c.chip === chipId && c.targetId === clickedNode.id)) { setSelectedChip(null); return; }
               addCommand({ type: 'use_chip', chip: chipId, targetId: clickedNode.id, playerId: myPlayerNum, chipIdx }); setSelectedChip(null);
             }
             return;
           }
           if (chipId === 'MINE_BOOST' || chipId === 'ATK_BOOST') {
-            if (clickedNode && clickedNode.owner === myPlayerNum) {
+            if (clickedNode && isAlly(clickedNode.owner, myPlayerNum, gameState.isTeamBattle) || clickedNode?.owner === myPlayerNum) {
               if (playerCommands.some(c => c.type === 'use_chip' && c.chip === chipId && c.targetId === clickedNode.id)) { setSelectedChip(null); return; }
               addCommand({ type: 'use_chip', chip: chipId, targetId: clickedNode.id, playerId: myPlayerNum, chipIdx }); setSelectedChip(null);
             }
@@ -1121,16 +1383,16 @@
         if (bgImageRef.current && bgImageRef.current.complete) {
           ctx.drawImage(bgImageRef.current, 0, 0, MAP_W, MAP_H);
         } else {
-          ctx.fillStyle = '#0f172a';
+          ctx.fillStyle = '#1e0000'; // 生体内っぽい暗い赤
           ctx.fillRect(0, 0, MAP_W, MAP_H);
         }
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+        ctx.fillStyle = 'rgba(30, 0, 0, 0.7)';
         ctx.fillRect(0, 0, MAP_W, MAP_H);
 
-        const visibleNodes = getVisibleNodes(myPlayerNum, state.nodes, state.edges);
+        const visibleNodes = getVisibleNodes(myPlayerNum, state.nodes, state.edges, state.isTeamBattle);
         const { predicted, inflows } = currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS' ? calculatePrediction() : { predicted: state.nodes, inflows: {} };
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; 
+        ctx.strokeStyle = 'rgba(255,100,100,0.1)'; 
         ctx.lineWidth = 1 / cameraRef.current.scale;
         for(let i=0; i<=MAP_W; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,MAP_H); ctx.stroke(); }
         for(let i=0; i<=MAP_H; i+=50) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(MAP_W,i); ctx.stroke(); }
@@ -1145,13 +1407,13 @@
               ctx.fillStyle = grad; ctx.arc(node.x, node.y, 160, 0, Math.PI * 2); ctx.fill();
             }
           });
-        } else { ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, MAP_W, MAP_H); }
+        } else { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, MAP_W, MAP_H); }
         ctx.globalCompositeOperation = 'source-over';
 
         const drawStrokedText = (text, x, y, fillStyle, baseFontSize = 20) => {
           const s = cameraRef.current.scale;
           ctx.font = `bold ${baseFontSize / s}px sans-serif`;
-          ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4 / s;
+          ctx.strokeStyle = '#300000'; ctx.lineWidth = 4 / s;
           ctx.strokeText(text, x, y); ctx.fillStyle = fillStyle; ctx.fillText(text, x, y);
         };
 
@@ -1164,13 +1426,13 @@
 
           ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
           if (isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS')) { ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4 / cameraRef.current.scale; ctx.setLineDash([10 / cameraRef.current.scale, 10 / cameraRef.current.scale]); } 
-          else { ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 5 / cameraRef.current.scale; ctx.setLineDash(edge.isOneWay ? [15 / cameraRef.current.scale, 10 / cameraRef.current.scale] : []); }
+          else { ctx.strokeStyle = 'rgba(255, 100, 100, 0.4)'; ctx.lineWidth = 5 / cameraRef.current.scale; ctx.setLineDash(edge.isOneWay ? [15 / cameraRef.current.scale, 10 / cameraRef.current.scale] : []); }
           ctx.stroke(); ctx.setLineDash([]);
           if (edge.isOneWay) {
             const midX = (s.x + t.x) / 2, midY = (s.y + t.y) / 2, angle = Math.atan2(t.y - s.y, t.x - s.x);
             const size = 12 / cameraRef.current.scale;
             ctx.save(); ctx.translate(midX, midY); ctx.rotate(angle); ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size*0.8, -size*0.8); ctx.lineTo(-size*0.5, 0); ctx.lineTo(-size*0.8, size*0.8); ctx.closePath();
-            ctx.fillStyle = isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') ? '#ef4444' : 'rgba(255, 255, 255, 0.6)'; ctx.fill(); ctx.restore();
+            ctx.fillStyle = isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') ? '#ef4444' : 'rgba(255, 100, 100, 0.6)'; ctx.fill(); ctx.restore();
           }
         });
 
@@ -1183,7 +1445,7 @@
               if (s && t) {
                 ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
                 const hops = getHopDistance(cmd.nodeId, cmd.targetId, state.edges, [], s.mode === 'long_range');
-                ctx.strokeStyle = hops === 2 ? 'rgba(192, 132, 252, 0.8)' : 'rgba(14, 165, 233, 0.8)'; 
+                ctx.strokeStyle = hops === 2 ? 'rgba(192, 132, 252, 0.8)' : (isAlly(cmd.playerId, t.owner, state.isTeamBattle) ? 'rgba(34, 197, 94, 0.8)' : 'rgba(14, 165, 233, 0.8)'); 
                 ctx.lineWidth = 4 / cameraRef.current.scale; ctx.setLineDash([10 / cameraRef.current.scale, 10 / cameraRef.current.scale]); ctx.lineDashOffset = -(time / 50) % 20; ctx.stroke(); ctx.setLineDash([]);
               }
             }
@@ -1209,39 +1471,42 @@
               else if (isItemCap && p < 0.85) { isBlinking = Math.floor(time / 80) % 2 === 0; }
             }
           }
-          const r = node.shobaType && SHOBA_INFO[node.shobaType] ? SHOBA_INFO[node.shobaType].radius : 25;
+          const r = node.shobaType && TISSUE_INFO[node.shobaType] ? TISSUE_INFO[node.shobaType].radius : 25;
 
-          ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-          ctx.fillStyle = isBlinking ? '#ffffff' : (node.type === 'dump' ? 'rgba(132, 204, 22, 0.5)' : `${COLORS.players[drawOwner]}88`); ctx.fill();
+          // 脈打ちエフェクト
+          const pulse = 1 + Math.sin(time / 200 + node.id) * 0.05;
+          const currentR = r * (node.mode === 'normal' ? pulse : 1);
 
-          if (node.mode === 'long_range') { ctx.beginPath(); ctx.arc(node.x, node.y, r + 7, 0, Math.PI * 2); ctx.strokeStyle = COLORS.long_range; ctx.lineWidth = 2 / cameraRef.current.scale; ctx.setLineDash([5 / cameraRef.current.scale, 5 / cameraRef.current.scale]); ctx.stroke(); ctx.setLineDash([]); }
+          ctx.beginPath(); ctx.arc(node.x, node.y, currentR, 0, Math.PI * 2);
+          ctx.fillStyle = isBlinking ? '#ffffff' : (node.type === 'dump' ? 'rgba(153, 27, 27, 0.7)' : `${COLORS.players[drawOwner]}88`); ctx.fill();
 
-          ctx.lineWidth = (isSelected ? 4 : isHovered ? 2 : 2) / cameraRef.current.scale; ctx.strokeStyle = isSelected ? COLORS.highlight : (node.type === 'dump' ? '#4d7c0f' : COLORS.players[drawOwner]); ctx.stroke();
-          
-          const imgKey = node.type === 'item' ? 'item' : (SHOBA_INFO[node.shobaType]?.imgKey);
-          const imgObj = loadedImages[imgKey];
-          
-          if (imgObj) {
-            const imgSize = r * 1.4;
-            ctx.drawImage(imgObj, node.x - imgSize/2, node.y - imgSize/2, imgSize, imgSize);
-          } else {
-            ctx.font = `${r * 1.2 / cameraRef.current.scale}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            const emoji = node.type === 'item' ? '📦' : (SHOBA_EMOJI[node.shobaType] || '⛺');
-            ctx.fillText(emoji, node.x, node.y);
+          if (node.mode === 'long_range') { ctx.beginPath(); ctx.arc(node.x, node.y, currentR + 7, 0, Math.PI * 2); ctx.strokeStyle = COLORS.long_range; ctx.lineWidth = 2 / cameraRef.current.scale; ctx.setLineDash([5 / cameraRef.current.scale, 5 / cameraRef.current.scale]); ctx.stroke(); ctx.setLineDash([]); }
+
+          // マクロファージのターゲットエフェクト
+          if (state.immuneTargets && state.immuneTargets.includes(node.id) && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS')) {
+             ctx.beginPath(); ctx.arc(node.x, node.y, currentR + 15, 0, Math.PI * 2);
+             ctx.fillStyle = `rgba(239, 68, 68, ${0.2 + Math.abs(Math.sin(time / 150)) * 0.3})`;
+             ctx.fill();
           }
 
-          ctx.beginPath(); ctx.arc(node.x + r * 0.7, node.y + r * 0.7, 14, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); ctx.lineWidth = 2 / cameraRef.current.scale; ctx.strokeStyle = COLORS.players[drawOwner]; ctx.stroke();
+          ctx.lineWidth = (isSelected ? 4 : isHovered ? 2 : 2) / cameraRef.current.scale; ctx.strokeStyle = isSelected ? COLORS.highlight : (node.type === 'dump' ? '#f87171' : COLORS.players[drawOwner]); ctx.stroke();
           
           const s = cameraRef.current.scale;
-          ctx.fillStyle = '#ffffff'; ctx.font = `bold ${12/s}px sans-serif`; ctx.fillText(node.energy, node.x + r * 0.7, node.y + r * 0.7);
+          ctx.font = `${currentR * 1.2 / s}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          const emoji = node.type === 'item' ? '📦' : (TISSUE_INFO[node.shobaType]?.icon || '🦠');
+          ctx.fillText(emoji, node.x, node.y);
 
-          let title = node.type === 'item' ? '謎の段ボール' : SHOBA_INFO[node.shobaType]?.name || '';
+          ctx.beginPath(); ctx.arc(node.x + currentR * 0.7, node.y + currentR * 0.7, 14, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); ctx.lineWidth = 2 / s; ctx.strokeStyle = COLORS.players[drawOwner]; ctx.stroke();
+          
+          ctx.fillStyle = '#ffffff'; ctx.font = `bold ${12/s}px sans-serif`; ctx.fillText(node.energy, node.x + currentR * 0.7, node.y + currentR * 0.7);
+
+          let title = node.type === 'item' ? 'プラスミド' : TISSUE_INFO[node.shobaType]?.name || '';
           if (node.level > 1 && node.type !== 'dump' && node.type !== 'item') title = `Lv.${node.level} ${getLevelName(node.level)}`;
           if (title) {
             ctx.font = `${10/s}px sans-serif`;
             const textWidth = ctx.measureText(title).width;
-            ctx.fillStyle = 'rgba(15,23,42,0.8)'; ctx.fillRect(node.x - textWidth/2 - 6/s, node.y - r - 22/s, textWidth + 12/s, 18/s);
-            ctx.fillStyle = isBlinking ? '#cbd5e1' : (node.type === 'dump' ? '#d9f99d' : '#94a3b8'); ctx.fillText(title, node.x, node.y - r - 12/s);
+            ctx.fillStyle = 'rgba(15,23,42,0.8)'; ctx.fillRect(node.x - textWidth/2 - 6/s, node.y - currentR - 22/s, textWidth + 12/s, 18/s);
+            ctx.fillStyle = isBlinking ? '#cbd5e1' : (node.type === 'dump' ? '#fca5a5' : '#cbd5e1'); ctx.fillText(title, node.x, node.y - currentR - 12/s);
           }
 
           if ((currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') && state.alivePlayers.includes(myPlayerNum)) {
@@ -1270,13 +1535,13 @@
               anim.data.prep.forEach(prep => {
                 const node = state.nodes.find(n => n.id === (prep.nodeId || prep.s)); if(!node || !visibleNodes.has(node.id)) return;
                 ctx.globalAlpha = 1 - Math.pow(popP, 2); const yOff = -40 * popP / cameraRef.current.scale;
-                if (prep.type === 'upgrade') drawStrokedText(`設備強化!`, node.x, node.y + yOff, '#34d399');
+                if (prep.type === 'upgrade') drawStrokedText(`バイオフィルム!`, node.x, node.y + yOff, '#34d399');
                 else if (prep.type === 'toggle') drawStrokedText(`MODE: ${prep.mode.toUpperCase()}`, node.x, node.y + yOff, '#c084fc');
-                else if (prep.type === 'cut') drawStrokedText(`CUT!`, node.x, node.y + yOff, '#f87171');
-                else if (prep.type === 'emp_block') drawStrokedText(`カラス妨害!`, node.x, node.y + yOff, '#facc15');
-                else if (prep.type === 'mine_boost') drawStrokedText(`炊き出し x2!`, node.x, node.y + yOff, '#facc15');
-                else if (prep.type === 'atk_boost') drawStrokedText(`酒パワー x2!`, node.x, node.y + yOff, '#facc15');
-                else if (prep.type === 'sabotage') drawStrokedText(`サツ巡回!`, node.x, node.y + yOff, '#ef4444');
+                else if (prep.type === 'cut') drawStrokedText(`壁硬化!`, node.x, node.y + yOff, '#f87171');
+                else if (prep.type === 'emp_block') drawStrokedText(`酵素溶解!`, node.x, node.y + yOff, '#facc15');
+                else if (prep.type === 'mine_boost') drawStrokedText(`異常代謝 x2!`, node.x, node.y + yOff, '#facc15');
+                else if (prep.type === 'atk_boost') drawStrokedText(`猛毒素 x2!`, node.x, node.y + yOff, '#facc15');
+                else if (prep.type === 'sabotage') drawStrokedText(`抗生物質!`, node.x, node.y + yOff, '#ef4444');
                 ctx.globalAlpha = 1.0;
               });
             }
@@ -1330,25 +1595,29 @@
             });
             anim.data.captures.forEach(cap => {
               const node = state.nodes.find(n => n.id === cap.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(cap.newOwner === 0 ? '無人に...' : 'ショバ強奪!', node.x, node.y + 30/cameraRef.current.scale - yOffset, cap.newOwner === 0 ? '#cbd5e1' : COLORS.players[cap.newOwner], 22); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(cap.newOwner === 0 ? '一掃...' : '感染支配!', node.x, node.y + 30/cameraRef.current.scale - yOffset, cap.newOwner === 0 ? '#cbd5e1' : COLORS.players[cap.newOwner], 22); ctx.globalAlpha = 1.0;
             });
           }
           if (p > 0.85) {
             const popP = (p - 0.85) / 0.15, yOffset = (popP * -30) / cameraRef.current.scale;
             anim.data.weatherDamages.forEach(w => {
               const node = state.nodes.find(n => n.id === w.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(`寒波ダメージ -${w.amount}`, node.x, node.y - 35/cameraRef.current.scale + yOffset, '#22d3ee', 16); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`発熱ダメージ -${w.amount}`, node.x, node.y - 35/cameraRef.current.scale + yOffset, '#22d3ee', 16); ctx.globalAlpha = 1.0;
             });
             anim.data.trashBonuses.forEach(b => {
               const node = state.nodes.find(n => n.id === b.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(`ゴミの日! +${b.amount}`, node.x, node.y - 35/cameraRef.current.scale + yOffset, '#84cc16', 20); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`細胞崩壊! +${b.amount}`, node.x, node.y - 35/cameraRef.current.scale + yOffset, '#ef4444', 20); ctx.globalAlpha = 1.0;
             });
             anim.data.mines.forEach(m => {
               const node = state.nodes.find(n => n.id === m.nodeId); if(!node || !visibleNodes.has(node.id)) return;
-              ctx.globalAlpha = 1 - popP; drawStrokedText(`+${m.amount} 資源`, node.x + 40/cameraRef.current.scale, node.y + yOffset, '#4ade80', 16); ctx.globalAlpha = 1.0;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`+${m.amount} 菌`, node.x + 40/cameraRef.current.scale, node.y + yOffset, '#4ade80', 16); ctx.globalAlpha = 1.0;
             });
             anim.data.items.forEach(itm => {
                if (itm.owner === myPlayerNum) { ctx.globalAlpha = 1 - popP; drawStrokedText(`GET: ${CHIP_TYPES[itm.item].name}`, itm.x, itm.y - 50/cameraRef.current.scale + yOffset, '#facc15', 18); ctx.globalAlpha = 1.0; }
+            });
+            anim.data.immuneAttacks.forEach(i => {
+              const node = state.nodes.find(n => n.id === i.nodeId); if(!node || !visibleNodes.has(node.id)) return;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`貪食! -${i.amount}`, node.x, node.y - 60/cameraRef.current.scale + yOffset, '#ef4444', 24); ctx.globalAlpha = 1.0;
             });
           }
         }
@@ -1376,7 +1645,6 @@
         const availableEnergy = node.energy - moveAssigned;
         const menuWidth = 280, menuHeight = 80;
 
-        // Visual Coordinates (Pixel on container)
         const vx = (node.x - cameraRef.current.x) * cameraRef.current.scale;
         const vy = (node.y - cameraRef.current.y) * cameraRef.current.scale;
 
@@ -1385,6 +1653,9 @@
 
         if (topPos < 10) topPos = vy + 40; 
         if (leftPos - menuWidth / 2 < 10) leftPos = menuWidth / 2 + 10; else if (leftPos + menuWidth / 2 > mapSize.w - 10) leftPos = mapSize.w - menuWidth / 2 - 10;
+
+        const leftPct = (leftPos / MAP_W) * 100;
+        const topPct = (topPos / MAP_H) * 100;
 
         if (isMobile) {
           return (
@@ -1399,28 +1670,28 @@
                 className={`flex-1 h-14 flex flex-col items-center justify-center rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!safeActions.includes('move') ? 'hidden' : 'flex'}`}
               >
                 <span className="text-lg">➡️</span>
-                <span className="text-[9px] mt-1 text-center leading-tight">輸送<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : ''}</span>
+                <span className="text-[9px] mt-1 text-center leading-tight">浸潤<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : ''}</span>
               </button>
               <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
                 disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
                 className={`flex-1 h-14 flex flex-col items-center justify-center rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
               >
-                <span className="text-lg">📡</span>
-                {node.mode === 'long_range' ? <span className="text-[9px] mt-1 text-center leading-tight">通常</span> : <span className="text-[9px] mt-1 text-center leading-tight">遠隔</span>}
+                <span className="text-lg">〰️</span>
+                {node.mode === 'long_range' ? <span className="text-[9px] mt-1 text-center leading-tight">定着</span> : <span className="text-[9px] mt-1 text-center leading-tight">血流乗布</span>}
               </button>
               <button onClick={() => { if (node.energy >= 30 && node.level < 3) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
                 disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3 || !safeActions.includes('upgrade')} 
                 className={`flex-1 h-14 flex flex-col items-center justify-center rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('upgrade') ? 'hidden' : 'flex'}`}
               >
-                <span className="text-lg">🔨</span>
-                <span className="text-[9px] mt-1 text-center leading-tight">強化<br/>(-30)</span>
+                <span className="text-lg">🛠️</span>
+                <span className="text-[9px] mt-1 text-center leading-tight">膜形成<br/>(-30)</span>
               </button>
               <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
                 disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
                 className={`flex-1 h-14 flex flex-col items-center justify-center rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('cut') ? 'hidden' : 'flex'}`}
               >
                 <span className="text-lg">✂️</span>
-                <span className="text-[9px] mt-1 text-center leading-tight">カット<br/>(-10)</span>
+                <span className="text-[9px] mt-1 text-center leading-tight">壁硬化<br/>(-10)</span>
               </button>
             </div>
           );
@@ -1437,28 +1708,28 @@
                 className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!safeActions.includes('move') ? 'hidden' : 'flex'}`}
               >
                 <span className="text-xl">➡️</span>
-                <span className="text-[10px] mt-1 text-center leading-tight">輸送<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
+                <span className="text-[10px] mt-1 text-center leading-tight">浸潤<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
               </button>
               <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
                 disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
                 className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
               >
-                <span className="text-xl">📡</span>
-                {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">採掘再開<br/>(通常)</span> : <span className="text-[10px] mt-1 text-center leading-tight">遠隔切替<br/>(停止)</span>}
+                <span className="text-xl">〰️</span>
+                {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">定着<br/>(増殖)</span> : <span className="text-[10px] mt-1 text-center leading-tight">血流乗布<br/>(芽胞化)</span>}
               </button>
               <button onClick={() => { if (node.energy >= 30 && node.level < 3) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
                 disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3 || !safeActions.includes('upgrade')} 
                 className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('upgrade') ? 'hidden' : 'flex'}`}
               >
-                <span className="text-xl">🔨</span>
-                <span className="text-[10px] mt-1 text-center leading-tight">設備強化<br/>(-30缶)</span>
+                <span className="text-xl">🛠️</span>
+                <span className="text-[10px] mt-1 text-center leading-tight">膜形成<br/>(-30菌)</span>
               </button>
               <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
                 disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
                 className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('cut') ? 'hidden' : 'flex'}`}
               >
                 <span className="text-xl">✂️</span>
-                <span className="text-[10px] mt-1 text-center leading-tight">カット<br/>(-10缶)</span>
+                <span className="text-[10px] mt-1 text-center leading-tight">壁硬化<br/>(-10菌)</span>
               </button>
             </div>
           );
@@ -1468,23 +1739,23 @@
       const renderTargetPrompt = () => {
         if (selectedChip?.id === 'EMP' || selectedChip?.id === 'SABOTAGE') {
           return (
-            <div className={`fixed top-16 left-1/2 transform -translate-x-1/2 bg-indigo-500/20 text-indigo-300 px-4 py-2 rounded-full border border-indigo-500/50 flex items-center justify-center gap-2 animate-pulse pointer-events-none z-50 ${isMobile ? 'w-[90%] text-xs' : 'w-auto text-base'}`}>
-              {CHIP_TYPES[selectedChip.id].name}: 対象の敵ショバを選択
+            <div className={`absolute top-16 md:top-28 left-1/2 transform -translate-x-1/2 bg-indigo-500/20 text-indigo-300 px-4 md:px-6 py-2 rounded-full border border-indigo-500/50 flex items-center justify-center gap-2 animate-pulse pointer-events-none z-30 text-xs md:text-base w-[90%] md:w-auto text-center`}>
+              {CHIP_TYPES[selectedChip.id].name}: 対象の敵組織を選択
             </div>
           );
         }
         if (selectedChip?.id === 'MINE_BOOST' || selectedChip?.id === 'ATK_BOOST') {
           return (
-            <div className={`fixed top-16 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-4 py-2 rounded-full border border-yellow-500/50 flex items-center justify-center gap-2 animate-pulse pointer-events-none z-50 ${isMobile ? 'w-[90%] text-xs' : 'w-auto text-base'}`}>
-              {CHIP_TYPES[selectedChip.id].name}: 対象の自派閥ショバを選択
+            <div className={`absolute top-16 md:top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-4 md:px-6 py-2 rounded-full border border-yellow-500/50 flex items-center justify-center gap-2 animate-pulse pointer-events-none z-30 text-xs md:text-base w-[90%] md:w-auto text-center`}>
+              {CHIP_TYPES[selectedChip.id].name}: 対象の自派閥組織を選択
             </div>
           );
         }
         if (uiState.mode !== 'SELECTING_TARGET' || !gameState) return null;
         const isLong = gameState.nodes.find(n => n.id === uiState.nodeId)?.mode === 'long_range';
         return (
-          <div className={`fixed top-16 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-4 py-2 rounded-full border border-yellow-500/50 flex items-center justify-center gap-2 animate-pulse pointer-events-none z-50 ${isMobile ? 'w-[90%] text-xs' : 'w-auto text-base'}`}>
-            🎯 {uiState.actionType === 'move' ? `対象ショバ（${isLong ? '遠隔' : '隣接'}）を選択` : '切断する対象ショバを選択'}
+          <div className={`absolute top-16 md:top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-4 md:px-6 py-2 rounded-full border border-yellow-500/50 flex items-center justify-center gap-2 animate-pulse pointer-events-none z-30 text-xs md:text-base w-[90%] md:w-auto text-center`}>
+            🎯 {uiState.actionType === 'move' ? `対象組織（${isLong ? '遠隔' : '隣接'}）を選択` : '硬化する対象組織を選択'}
           </div>
         );
       };
@@ -1492,13 +1763,13 @@
       const renderSlider = () => {
         if (uiState.mode !== 'INPUT_AMOUNT') return null;
         return (
-          <div className={`fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-800 border border-slate-600 p-6 rounded-xl shadow-2xl z-50 ${isMobile ? 'w-[90%]' : 'w-80'}`}>
-            <h3 className="text-white text-lg mb-4 flex items-center gap-2">🪙 資源輸送量</h3>
+          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-800 border border-slate-600 p-4 md:p-6 rounded-xl shadow-2xl z-30 w-[90%] md:w-80 pointer-events-auto`}>
+            <h3 className="text-white text-base md:text-lg mb-4 flex items-center gap-2">🦠 浸潤菌数</h3>
             <input type="range" min="1" max={uiState.maxAmount} value={amountSlider} onChange={(e) => setAmountSlider(parseInt(e.target.value))} className="w-full accent-sky-500 mb-4" />
             <div className="flex justify-between text-slate-300 text-sm mb-6"><span>1</span><span className="text-2xl font-bold text-sky-400">{amountSlider}</span><span>{uiState.maxAmount}</span></div>
             <div className="flex gap-3">
-              <button onClick={() => setUiState({ mode: 'IDLE' })} className="flex-1 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white">キャンセル</button>
-              <button onClick={() => addCommand({ type: 'move', nodeId: uiState.nodeId, targetId: uiState.targetId, amount: amountSlider, playerId: myPlayerNum })} className="flex-1 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold">決定</button>
+              <button onClick={() => setUiState({ mode: 'IDLE' })} className="flex-1 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm md:text-base">キャンセル</button>
+              <button onClick={() => addCommand({ type: 'move', nodeId: uiState.nodeId, targetId: uiState.targetId, amount: amountSlider, playerId: myPlayerNum })} className="flex-1 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm md:text-base">決定</button>
             </div>
           </div>
         );
@@ -1507,31 +1778,31 @@
       if (phase === 'TUTORIAL_SLIDES') {
         const slide = TUTORIAL_SLIDES[tutorialPage];
         return (
-          <div className="w-full min-h-screen bg-slate-900 flex items-center justify-center font-sans text-white p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
-            <div className="w-full max-w-4xl bg-slate-800 border border-sky-500/50 rounded-2xl shadow-[0_0_30px_rgba(14,165,233,0.3)] overflow-hidden flex flex-col h-[90vh] md:h-auto relative z-10">
-              <div className="bg-slate-900 px-6 py-4 flex justify-between items-center border-b border-slate-700">
-                <h2 className="text-2xl font-bold text-sky-400 flex items-center gap-2"><span>📖</span> 遊び方・ルール</h2>
-                <button onClick={() => { setPhase('SETUP'); setTutorialPage(0); }} className="text-slate-400 hover:text-white text-2xl transition-colors">✖</button>
+          <div className="w-full min-h-[100dvh] bg-black flex items-center justify-center font-sans text-white p-4" style={{ backgroundImage: BACKGROUNDS.normal, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(0, 0, 0, 0.85)' }}>
+            <div className="w-full max-w-4xl bg-slate-900 border border-red-500/50 rounded-2xl shadow-[0_0_30px_rgba(220,38,38,0.3)] overflow-hidden flex flex-col h-[90dvh] md:h-auto relative z-10">
+              <div className="bg-black px-4 md:px-6 py-3 md:py-4 flex justify-between items-center border-b border-red-900">
+                <h2 className="text-lg md:text-2xl font-bold text-red-400 flex items-center gap-2"><span>📖</span> 生存の掟</h2>
+                <button onClick={() => { setPhase('SETUP'); setTutorialPage(0); }} className="text-slate-400 hover:text-white text-xl md:text-2xl transition-colors">✖</button>
               </div>
               
-              <div className="p-10 flex-1 flex flex-col items-center justify-center text-center overflow-y-auto">
-                <div className="text-7xl mb-6">{slide.icon}</div>
-                <h3 className="text-4xl font-bold text-yellow-400 mb-6">{slide.title}</h3>
-                <p className="text-slate-300 text-xl leading-loose whitespace-pre-wrap text-left max-w-3xl">{slide.content}</p>
+              <div className="p-6 md:p-10 flex-1 flex flex-col items-center justify-center text-center overflow-y-auto">
+                <div className="text-5xl md:text-7xl mb-6">{slide.icon}</div>
+                <h3 className="text-2xl md:text-4xl font-bold text-red-400 mb-6">{slide.title}</h3>
+                <p className="text-slate-300 text-base md:text-xl leading-loose whitespace-pre-wrap text-left max-w-3xl">{slide.content}</p>
               </div>
 
-              <div className="bg-slate-900 px-8 py-5 flex justify-between items-center border-t border-slate-700">
+              <div className="bg-black px-4 md:px-8 py-4 md:py-5 flex justify-between items-center border-t border-red-900">
                 <button 
                   onClick={() => setTutorialPage(p => Math.max(0, p - 1))}
                   disabled={tutorialPage === 0}
-                  className="px-8 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-white font-bold transition-colors text-lg"
+                  className="px-4 md:px-8 py-2 md:py-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-white font-bold transition-colors text-sm md:text-lg"
                 >
                   ◀ 前へ
                 </button>
                 
-                <div className="flex gap-3">
+                <div className="flex gap-1 md:gap-3">
                   {TUTORIAL_SLIDES.map((_, i) => (
-                    <div key={i} className={`w-4 h-4 rounded-full transition-colors ${i === tutorialPage ? 'bg-sky-400' : 'bg-slate-600'}`}></div>
+                    <div key={i} className={`w-2 h-2 md:w-4 md:h-4 rounded-full transition-colors ${i === tutorialPage ? 'bg-red-400' : 'bg-slate-700'}`}></div>
                   ))}
                 </div>
 
@@ -1544,7 +1815,7 @@
                       setTutorialPage(p => p + 1);
                     }
                   }}
-                  className={`px-8 py-3 rounded-lg text-white font-bold transition-colors text-lg ${tutorialPage === TUTORIAL_SLIDES.length - 1 ? 'bg-green-600 hover:bg-green-500' : 'bg-sky-600 hover:bg-sky-500'}`}
+                  className={`px-4 md:px-8 py-2 md:py-3 rounded-lg text-white font-bold transition-colors text-sm md:text-lg ${tutorialPage === TUTORIAL_SLIDES.length - 1 ? 'bg-green-700 hover:bg-green-600' : 'bg-red-700 hover:bg-red-600'}`}
                 >
                   {tutorialPage === TUTORIAL_SLIDES.length - 1 ? '閉じる' : '次へ ▶'}
                 </button>
@@ -1556,77 +1827,122 @@
 
       if (phase === 'SETUP') {
         return (
-          <div className="w-full min-h-screen flex flex-col items-center justify-center font-sans relative p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+          <div className="w-full min-h-[100dvh] flex flex-col items-center justify-center font-sans relative p-4" style={{ backgroundImage: BACKGROUNDS.normal, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(0, 0, 0, 0.85)' }}>
             
             <div className="absolute top-2 left-2 z-[100] flex gap-2">
-              <button onClick={() => setLayoutMode(m => m === 'auto' ? 'mobile' : m === 'mobile' ? 'pc' : 'auto')} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:px-3 rounded-lg border border-slate-600 text-slate-300 backdrop-blur text-xs flex items-center gap-1 shadow-lg">
+              <button onClick={() => setLayoutMode(m => m === 'auto' ? 'mobile' : m === 'mobile' ? 'pc' : 'auto')} className="bg-black/80 hover:bg-slate-900 p-2 md:px-3 rounded-lg border border-red-900 text-slate-300 backdrop-blur text-xs flex items-center gap-1 shadow-lg">
                 {layoutMode === 'auto' ? '🔄 Auto' : layoutMode === 'mobile' ? '📱 スマホ版' : '💻 PC版'}
               </button>
             </div>
 
-            <button onClick={() => setPhase('TUTORIAL_SLIDES')} className={`absolute ${rx('top-12 right-2 px-3 py-2 text-sm', 'top-4 right-4 px-6 py-3 text-base')} bg-slate-800/80 hover:bg-slate-700 text-sky-300 rounded-xl border border-sky-500/50 transition-colors flex items-center gap-2 shadow-lg backdrop-blur font-bold z-50`}>
-              <span className={rx('text-lg','text-2xl')}>📖</span> 遊び方
+            <button onClick={() => setPhase('TUTORIAL_SLIDES')} className={`absolute ${rx('top-12 right-2 px-3 py-2 text-sm', 'top-4 right-4 px-6 py-3 text-base')} bg-black/80 hover:bg-slate-900 text-red-300 rounded-xl border border-red-500/50 transition-colors flex items-center gap-2 shadow-lg backdrop-blur font-bold z-50`}>
+              <span className={rx('text-lg','text-2xl')}>📖</span> 生存の掟
             </button>
 
-            <div className={`mb-8 flex flex-col items-center justify-center ${rx('gap-2 mt-16', 'gap-4 mt-0')} text-sky-400`}>
+            <div className={`mb-8 flex flex-col items-center justify-center ${rx('gap-2 mt-16', 'gap-4 mt-0')} text-red-400`}>
               <div className={`flex items-center ${rx('gap-2', 'gap-4')}`}>
-                 <span className={`${rx('text-4xl', 'text-6xl')} animate-bounce`}>🗑️</span>
-                 <h1 className={`${rx('text-3xl', 'text-6xl')} font-black tracking-widest drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] text-yellow-500 text-center leading-tight`}>HOMELESS{isMobile && <br/>} WARS</h1>
+                 <span className={`${rx('text-4xl', 'text-6xl')} animate-pulse`}>🦠</span>
+                 <h1 className={`${rx('text-5xl', 'text-7xl')} font-black tracking-widest drop-shadow-[0_0_15px_rgba(220,38,38,0.5)] text-red-500 text-center leading-tight`}>菌バトル</h1>
               </div>
-              <p className={`text-slate-300 tracking-widest font-bold ${rx('text-sm mt-2', 'text-xl mt-2')}`}>〜地下帝国のドン〜</p>
             </div>
             
             {!gameMode ? (
               <div className={`flex ${rx('flex-col gap-4 w-full px-4', 'flex-row gap-6 w-full max-w-3xl')} mt-4`}>
-                <button onClick={() => startPlayableTutorial(1)} className={`flex-1 bg-slate-800/80 ${rx('p-4', 'p-6')} rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors`}>
+                <button onClick={() => startPlayableTutorial(1)} className={`flex-1 bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-[0_0_15px_rgba(220,38,38,0.2)] backdrop-blur flex flex-col items-center hover:bg-slate-900 transition-colors`}>
                   <span className={`${rx('text-4xl mb-2', 'text-5xl mb-3')}`}>🎓</span>
                   <h3 className={`${rx('text-lg', 'text-xl')} text-green-400 font-bold`}>チュートリアル</h3>
-                  <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>基本を学びながら<br/>5つのステージをクリア</p>
+                  <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>基本を学びながら<br/>ステージをクリア</p>
                 </button>
-                <button onClick={() => startSoloGame(2)} className={`flex-1 bg-slate-800/80 ${rx('p-4', 'p-6')} rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors`}>
+                <button onClick={() => setGameMode('SOLO')} className={`flex-1 bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-[0_0_15px_rgba(220,38,38,0.2)] backdrop-blur flex flex-col items-center hover:bg-slate-900 transition-colors`}>
                   <span className={`${rx('text-4xl mb-2', 'text-5xl mb-3')}`}>👤</span>
-                  <h3 className={`${rx('text-lg', 'text-xl')} text-white font-bold`}>ソロプレイ</h3>
-                  <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
+                  <h3 className={`${rx('text-lg', 'text-xl')} text-white font-bold`}>単独感染 (ソロ)</h3>
+                  <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>宿主の免疫・他菌(AI)と<br/>一人で手軽に争う</p>
                 </button>
-                <button onClick={() => setGameMode('MULTI')} className={`flex-1 bg-slate-800/80 ${rx('p-4', 'p-6')} rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors`}>
+                <button onClick={() => setGameMode('MULTI')} className={`flex-1 bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-[0_0_15px_rgba(220,38,38,0.2)] backdrop-blur flex flex-col items-center hover:bg-slate-900 transition-colors`}>
                   <span className={`${rx('text-4xl mb-2', 'text-5xl mb-3')}`}>🌐</span>
-                  <h3 className={`${rx('text-lg', 'text-xl')} text-sky-400 font-bold`}>ローカル通信対戦</h3>
-                  <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>ルームIDを入力するだけで<br/>別々のスマホやPCで対戦</p>
+                  <h3 className={`${rx('text-lg', 'text-xl')} text-red-400 font-bold`}>複合感染 (マルチ)</h3>
+                  <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>公開ルームやIDで<br/>別々のスマホやPCで対戦</p>
                 </button>
               </div>
             ) : gameMode === 'SOLO' ? (
-              <div className={`bg-slate-800/80 ${rx('p-6 w-[90%]', 'p-8 w-auto')} rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center mt-4`}>
-                <h3 className={`${rx('text-xl', 'text-2xl')} text-white font-bold ${rx('mb-4', 'mb-6')}`}>参加派閥数を選択</h3>
+              <div className={`bg-black/80 ${rx('p-6 w-[90%]', 'p-8 w-auto')} rounded-xl border border-red-900 shadow-xl backdrop-blur flex flex-col items-center mt-4`}>
+                <h3 className={`${rx('text-xl', 'text-2xl')} text-white font-bold ${rx('mb-4', 'mb-6')}`}>競合バクテリア数を選択</h3>
                 <div className={`flex ${rx('flex-col gap-3', 'flex-row gap-4')} w-full mb-6`}>
+                  <button onClick={() => startSoloGame(4, true)} className={`${rx('px-6 py-3', 'px-8 py-4')} bg-emerald-800 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors text-base md:text-xl w-full border border-emerald-600`}>2vs2 混合感染(チーム)</button>
                   {[2, 3, 4].map(num => (
-                    <button key={num} onClick={() => startSoloGame(num)} className={`${rx('px-6 py-3', 'px-8 py-4')} bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors text-base md:text-xl w-full`}>{num} 派閥</button>
+                    <button key={num} onClick={() => startSoloGame(num, false)} className={`${rx('px-6 py-3', 'px-8 py-4')} bg-red-900 hover:bg-red-800 text-white font-bold rounded-lg transition-colors text-base md:text-xl w-full border border-red-700`}>{num} 菌株</button>
                   ))}
                 </div>
-                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-2 text-sm">◀ モード選択へ戻る</button>
+                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-2 md:mt-4 text-sm md:text-base">◀ モード選択へ戻る</button>
               </div>
             ) : (
-              <div className="flex flex-col items-center mt-4 w-full px-4">
-                <div className={`flex ${rx('flex-col gap-6', 'flex-row gap-8')} w-full max-w-2xl justify-center`}>
-                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center flex-1">
-                    <h3 className={`${rx('text-lg', 'text-xl')} text-yellow-400 font-bold mb-4`}>⛺ 部屋を作る (ホスト)</h3>
-                    <p className={`text-slate-400 ${rx('text-xs', 'text-sm')} text-center mb-6`}>参加人数を選んで<br/>ルームIDを発行します。</p>
-                    <div className="flex flex-wrap justify-center gap-2 w-full">
-                      {[2, 3, 4].map(num => (
-                        <button key={num} onClick={() => startHosting(num)} className="flex-1 px-2 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded transition-colors text-sm">{num} 派閥</button>
-                      ))}
+              <div className="flex flex-col items-center mt-4 w-full px-4 max-w-4xl">
+                <div className={`flex ${rx('flex-col gap-4', 'flex-row gap-6')} w-full`}>
+                  
+                  {/* ロビー一覧 */}
+                  <div className={`bg-black/80 p-4 rounded-xl border border-red-900 shadow-xl backdrop-blur flex-1 flex flex-col ${rx('min-h-[250px] max-h-[300px]', 'min-h-[400px]')}`}>
+                    <h3 className="text-lg text-red-400 font-bold mb-3 flex items-center justify-between">
+                      <span>🌐 感染中宿主一覧 (ロビー)</span>
+                      {lobbyState === 'initializing' && <span className="text-xs text-slate-400 animate-pulse">探索中...</span>}
+                    </h3>
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+                      {roomList.filter(r => r.status === 'WAITING').length === 0 ? (
+                        <p className="text-slate-500 text-sm text-center mt-10">現在感染できる公開宿主はありません。</p>
+                      ) : (
+                        roomList.filter(r => r.status === 'WAITING').map((r, idx) => (
+                          <div key={idx} className="bg-slate-900/80 p-3 rounded border border-red-900/50 flex justify-between items-center">
+                            <div>
+                              <div className="font-bold text-white text-sm">{r.roomName}</div>
+                              <div className="text-xs text-slate-400 mt-1">
+                                {r.isTeamBattle ? '🤝 2vs2 混合' : `🦠 ${r.playerCount}菌株`} | 最初の菌: {r.hostName}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <span className="text-xs font-bold text-red-300 bg-red-900/50 px-2 py-1 rounded">
+                                {r.currentPlayers} / {r.playerCount} 株
+                              </span>
+                              <button onClick={() => joinRoom(r.roomId)} className="px-4 py-1 bg-red-800 hover:bg-red-700 text-white font-bold rounded text-xs transition-colors shadow border border-red-600">
+                                侵入
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
-                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center flex-1">
-                    <h3 className={`${rx('text-lg', 'text-xl')} text-sky-400 font-bold mb-4`}>🍶 部屋に参加 (ゲスト)</h3>
-                    <p className={`text-slate-400 ${rx('text-xs', 'text-sm')} text-center mb-6`}>ホストから受け取った<br/>4桁のIDを入力します。</p>
-                    <div className="flex gap-2 w-full">
-                      <input type="text" placeholder="ID" value={joinInput} onChange={(e) => setJoinInput(e.target.value)} className="flex-1 px-2 py-2 rounded bg-slate-900 text-white border border-slate-600 uppercase font-mono text-center tracking-widest text-base w-20" maxLength={4} />
-                      <button onClick={() => joinRoom(joinInput)} disabled={!joinInput} className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold rounded transition-colors text-sm w-20">参加</button>
+
+                  {/* 部屋作成 & プライベート参加 */}
+                  <div className={`flex flex-col gap-4 w-full ${rx('','md:w-80')}`}>
+                    <div className="bg-black/80 p-4 rounded-xl border border-red-900 shadow-xl backdrop-blur flex flex-col">
+                      <h3 className="text-base text-yellow-500 font-bold mb-3">⛺ 新規宿主へ侵入 (ホスト)</h3>
+                      <div className="flex gap-2 mb-3">
+                        <input type="text" value={playerName} onChange={e=>setPlayerName(e.target.value)} placeholder="菌株名" className="flex-1 px-2 py-2 rounded bg-slate-900 text-white border border-slate-700 text-sm w-1/2" maxLength={8} />
+                        <input type="text" value={roomNameSuffix} onChange={e=>setRoomNameSuffix(e.target.value)} placeholder="の宿主" className="flex-1 px-2 py-2 rounded bg-slate-900 text-white border border-slate-700 text-sm w-1/2" maxLength={10} />
+                      </div>
+                      <label className="flex items-center gap-2 text-sm text-slate-300 mb-4 cursor-pointer w-fit">
+                        <input type="checkbox" checked={isPrivate} onChange={e=>setIsPrivate(e.target.checked)} className="w-4 h-4 accent-red-600" />
+                        鍵をかける (一覧に非公開)
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => startHosting(4, true)} className="w-full mb-1 px-2 py-2 bg-emerald-800 hover:bg-emerald-700 text-white font-bold rounded transition-colors text-sm shadow border border-emerald-600">2vs2 混合感染</button>
+                        {[2, 3, 4].map(num => (
+                          <button key={num} onClick={() => startHosting(num, false)} className="flex-1 px-2 py-2 bg-red-900 hover:bg-red-800 text-white font-bold rounded transition-colors text-sm shadow border border-red-700">{num} 菌株</button>
+                        ))}
+                      </div>
                     </div>
-                    {errorMsg && <p className="text-red-400 text-xs mt-3 font-bold">{errorMsg}</p>}
+
+                    <div className="bg-black/80 p-4 rounded-xl border border-red-900 shadow-xl backdrop-blur flex flex-col">
+                      <h3 className="text-base text-slate-300 font-bold mb-3">🔑 IDで侵入 (非公開宿主など)</h3>
+                      <div className="flex gap-2 w-full">
+                        <input type="text" placeholder="宿主ID" value={joinInput} onChange={(e) => setJoinInput(e.target.value)} className="flex-1 px-3 py-2 rounded bg-slate-900 text-white border border-slate-700 uppercase font-mono text-center tracking-widest text-sm" maxLength={4} />
+                        <button onClick={() => joinRoom(joinInput)} disabled={!joinInput} className="px-5 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-bold rounded transition-colors text-sm shadow">侵入</button>
+                      </div>
+                      {errorMsg && <p className="text-red-500 text-xs mt-2 font-bold">{errorMsg}</p>}
+                    </div>
                   </div>
+
                 </div>
-                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-6 md:mt-8 text-sm md:text-base">◀ モード選択へ戻る</button>
+                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-6 text-sm">◀ モード選択へ戻る</button>
               </div>
             )}
           </div>
@@ -1635,53 +1951,55 @@
 
       if (phase === 'WAITING_ROOM') {
         return (
-          <div className="w-full h-screen flex flex-col items-center justify-center font-sans text-white p-4 relative" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+          <div className="w-full h-[100dvh] flex flex-col items-center justify-center font-sans text-white p-4 relative" style={{ backgroundImage: BACKGROUNDS.normal, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(0, 0, 0, 0.85)' }}>
             
             <div className="absolute top-2 right-2 z-[100] flex gap-2">
-              <button onClick={() => setConfirmQuit(true)} className="bg-red-800/80 hover:bg-red-700 px-3 py-2 rounded-lg border border-red-600 text-white font-bold backdrop-blur text-xs shadow-lg">
-                終了 / 戻る
+              <button onClick={() => setConfirmQuit(true)} className="bg-red-900/80 hover:bg-red-800 px-3 py-2 rounded-lg border border-red-700 text-white font-bold backdrop-blur text-xs shadow-lg">
+                離脱 / 戻る
               </button>
             </div>
 
-            <h2 className={`${rx('text-2xl', 'text-4xl')} font-black text-green-400 mb-4 drop-shadow-lg flex items-center gap-2`}>✅ 通信接続完了！</h2>
+            <h2 className={`${rx('text-2xl', 'text-4xl')} font-black text-red-500 mb-4 drop-shadow-[0_0_10px_rgba(239,68,68,0.8)] flex items-center gap-2`}>✅ 宿主への侵入成功！</h2>
             <p className={`${rx('text-sm', 'text-xl')} mb-10 text-slate-300 text-center`}>P2Pネットワークによる直接通信が確立されました。</p>
             
-            <div className={`bg-slate-800/80 ${rx('p-4', 'p-6')} rounded-xl border border-slate-500 shadow-xl backdrop-blur w-full max-w-md mb-10`}>
-              <h3 className={`${rx('text-base', 'text-lg')} text-slate-300 mb-4 font-bold border-b border-slate-600 pb-2 flex justify-between items-center`}>
-                <span>参加メンバー ({gameData?.playerUids?.length} / {gameData?.playerCount})</span>
-                <span className="font-mono text-sky-400 bg-sky-900/30 px-2 py-1 rounded">ID: {roomId}</span>
+            <div className={`bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-xl backdrop-blur w-full max-w-md mb-10`}>
+              <h3 className={`${rx('text-base', 'text-lg')} text-slate-300 mb-4 font-bold border-b border-slate-800 pb-2 flex justify-between items-center`}>
+                <span>感染菌株 ({gameData?.playerUids?.length} / {gameData?.playerCount})</span>
+                <span className="font-mono text-red-400 bg-red-900/30 px-2 py-1 rounded border border-red-800/50">ID: {roomId}</span>
               </h3>
               <ul className="space-y-3">
                 {gameData?.playerUids?.map((uid, i) => (
-                  <li key={uid} className={`bg-slate-900/50 ${rx('px-3 py-2', 'px-4 py-3')} rounded-lg flex justify-between items-center border border-slate-700`}>
+                  <li key={uid} className={`bg-slate-900/80 ${rx('px-3 py-2', 'px-4 py-3')} rounded-lg flex justify-between items-center border border-slate-700`}>
                     <div className="flex items-center gap-3">
                       <div className={`${rx('w-3 h-3', 'w-4 h-4')} rounded-full`} style={{backgroundColor: COLORS.players[gameData.players[uid]]}}></div>
-                      <span className={`font-bold ${rx('text-sm', 'text-lg')}`}>派閥 {gameData.players[uid]} {uid === myUid ? '(あなた)' : ''}</span>
+                      <span className={`font-bold ${rx('text-sm', 'text-lg')}`}>
+                        {gameData.playerNames?.[uid] || `菌株 ${gameData.players[uid]}`} {uid === myUid ? '(あなた)' : ''}
+                      </span>
                     </div>
-                    {gameData.hostUid === uid && <span className={`text-yellow-400 ${rx('text-[10px]', 'text-xs')} font-black bg-yellow-900/50 px-2 py-1 rounded`}>HOST</span>}
+                    {gameData.hostUid === uid && <span className={`text-yellow-500 ${rx('text-[10px]', 'text-xs')} font-black bg-yellow-900/30 border border-yellow-700/50 px-2 py-1 rounded`}>HOST</span>}
                   </li>
                 ))}
               </ul>
             </div>
 
             {gameMode === 'HOST' ? (
-              <button onClick={startGame} className={`px-12 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-black ${rx('text-lg', 'text-2xl')} rounded-xl shadow-2xl transition-all hover:-translate-y-1 w-full max-w-md`}>
-                ゲーム開始 (空き枠はAI)
+              <button onClick={startGame} className={`px-12 py-5 bg-gradient-to-r from-red-800 to-red-600 hover:from-red-700 hover:to-red-500 text-white font-black ${rx('text-lg', 'text-2xl')} rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.4)] border border-red-500 transition-all hover:-translate-y-1 w-full max-w-md`}>
+                感染開始 (空きはAI)
               </button>
             ) : (
-              <div className="flex items-center gap-3 text-slate-400 text-lg animate-pulse text-center">
-                ⏳ ホストが開始するのを待っています...
+              <div className="flex items-center gap-3 text-red-400 text-lg animate-pulse text-center">
+                ⏳ ホストが感染を開始するのを待っています...
               </div>
             )}
             
             {confirmQuit && (
-              <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
-                <div className="bg-slate-800 p-6 rounded-xl border border-slate-500 shadow-2xl max-w-sm w-full text-center">
-                  <h3 className="text-xl font-bold text-white mb-4">タイトルへ戻りますか？</h3>
+              <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-4">
+                <div className="bg-slate-900 p-6 rounded-xl border border-red-900 shadow-[0_0_30px_rgba(220,38,38,0.3)] max-w-sm w-full text-center">
+                  <h3 className="text-xl font-bold text-red-400 mb-4">宿主から離脱しますか？</h3>
                   <p className="text-slate-400 text-sm mb-6">対戦中の場合、通信は切断されます。</p>
                   <div className="flex gap-4">
-                    <button onClick={() => setConfirmQuit(false)} className="flex-1 py-3 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold">キャンセル</button>
-                    <button onClick={quitGame} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold">終了する</button>
+                    <button onClick={() => setConfirmQuit(false)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg font-bold text-white">キャンセル</button>
+                    <button onClick={quitGame} className="flex-1 py-3 bg-red-800 hover:bg-red-700 border border-red-600 text-white rounded-lg font-bold">離脱する</button>
                   </div>
                 </div>
               </div>
@@ -1693,30 +2011,30 @@
       const currentDayIndex = gameState ? (gameState.turn - 1) % 7 : 0;
 
       return (
-        <div className="w-full h-screen bg-slate-900 flex flex-col items-center justify-center font-sans select-none text-white overflow-hidden relative">
+        <div className="w-full h-[100dvh] bg-black flex flex-col items-center justify-center font-sans select-none text-white overflow-hidden relative">
           
           <div className="absolute top-2 left-2 z-[100] flex gap-2">
-            <button onClick={() => setLayoutMode(m => m === 'auto' ? 'mobile' : m === 'mobile' ? 'pc' : 'auto')} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:px-3 rounded-lg border border-slate-600 text-slate-300 backdrop-blur text-xs flex items-center gap-1 shadow-lg">
+            <button onClick={() => setLayoutMode(m => m === 'auto' ? 'mobile' : m === 'mobile' ? 'pc' : 'auto')} className="bg-black/80 hover:bg-slate-900 p-2 md:px-3 rounded-lg border border-red-900 text-slate-300 backdrop-blur text-xs flex items-center gap-1 shadow-lg">
               {layoutMode === 'auto' ? '🔄 Auto' : layoutMode === 'mobile' ? '📱 スマホ版' : '💻 PC版'}
             </button>
           </div>
 
           <div className="absolute top-2 right-2 z-[100] flex gap-2">
             {phase !== 'SETUP' && (
-              <button onClick={() => setConfirmQuit(true)} className="bg-red-800/80 hover:bg-red-700 px-3 py-2 rounded-lg border border-red-600 text-white font-bold backdrop-blur text-xs shadow-lg">
-                終了 / 戻る
+              <button onClick={() => setConfirmQuit(true)} className="bg-red-900/80 hover:bg-red-800 px-3 py-2 rounded-lg border border-red-700 text-white font-bold backdrop-blur text-xs shadow-lg">
+                離脱 / 戻る
               </button>
             )}
           </div>
 
           {confirmQuit && (
-            <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4">
-              <div className="bg-slate-800 p-6 rounded-xl border border-slate-500 shadow-2xl max-w-sm w-full text-center">
-                <h3 className="text-xl font-bold text-white mb-4">タイトルへ戻りますか？</h3>
+            <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-4">
+              <div className="bg-slate-900 p-6 rounded-xl border border-red-900 shadow-[0_0_30px_rgba(220,38,38,0.3)] max-w-sm w-full text-center">
+                <h3 className="text-xl font-bold text-red-400 mb-4">宿主から離脱しますか？</h3>
                 <p className="text-slate-400 text-sm mb-6">対戦中の場合、通信は切断されます。</p>
                 <div className="flex gap-4">
-                  <button onClick={() => setConfirmQuit(false)} className="flex-1 py-3 bg-slate-600 hover:bg-slate-500 rounded-lg font-bold text-white">キャンセル</button>
-                  <button onClick={quitGame} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold">終了する</button>
+                  <button onClick={() => setConfirmQuit(false)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg font-bold text-white">キャンセル</button>
+                  <button onClick={quitGame} className="flex-1 py-3 bg-red-800 hover:bg-red-700 border border-red-600 text-white rounded-lg font-bold">離脱する</button>
                 </div>
               </div>
             </div>
@@ -1727,10 +2045,15 @@
               <div className={`flex ${rx('gap-1', 'gap-3')}`}>
                 {Array.from({length: gameState.playerCount}).map((_, i) => {
                   const p = i + 1; const isAlive = gameState.alivePlayers?.includes(p) ?? false;
+                  
+                  let label = `菌株 ${p}`;
+                  if (p === myPlayerNum) label = '自派閥';
+                  else if (gameState.isTeamBattle && getTeam(p, true) === getTeam(myPlayerNum, true)) label = '同盟菌';
+
                   return (
-                    <div key={p} className={`px-2 py-1 ${rx('','md:px-4 md:py-2')} rounded-lg flex items-center gap-1 border transition-all ${isAlive ? 'opacity-100' : 'opacity-30 grayscale'}`} style={{ borderColor: COLORS.players[p], backgroundColor: `${COLORS.players[p]}33` }}>
-                      <span className={`${rx('text-xs', 'text-base')}`}>{p === myPlayerNum ? '🛡️' : '👥'}</span>
-                      <span className={`font-bold ${rx('text-[10px] hidden','text-sm inline')}`}>{p === myPlayerNum ? '自派閥' : `派閥 ${p}`}</span>
+                    <div key={p} className={`px-2 py-1 ${rx('','md:px-4 md:py-2')} rounded-lg flex items-center gap-1 border transition-all ${isAlive ? 'opacity-100' : 'opacity-30 grayscale'}`} style={{ borderColor: COLORS.players[p], backgroundColor: `${COLORS.players[p]}44` }}>
+                      <span className={`${rx('text-xs', 'text-base')}`}>{p === myPlayerNum ? '🛡️' : '🦠'}</span>
+                      <span className={`font-bold ${rx('text-[10px] hidden','text-sm inline')}`}>{label}</span>
                     </div>
                   );
                 })}
@@ -1743,12 +2066,11 @@
                     const isDisabled = isUsed || (!isUsed && usedCount >= 2) || phase !== 'INPUT';
                     const isSelected = selectedChip?.idx === idx;
                     const info = CHIP_TYPES[chipId];
-                    const imgSrc = loadedImages[info.imgKey]?.src;
 
                     return (
                       <div key={idx} className="relative group">
-                        <button onClick={() => !isDisabled && handleChipSelect(chipId, idx)} disabled={isDisabled && !isSelected} className={`flex items-center gap-1 ${rx('px-1 py-0.5', 'px-2 py-1')} rounded ${rx('text-[10px]', 'text-xs')} border transition-all ${isUsed ? 'bg-slate-700 text-slate-500 border-slate-600' : isSelected ? 'bg-indigo-600 text-white border-indigo-400 animate-pulse' : isDisabled ? 'bg-slate-800 text-slate-600 border-slate-700 opacity-50' : 'bg-slate-800 text-indigo-300 border-indigo-500 hover:bg-indigo-900'}`}>
-                          {imgSrc ? <img src={imgSrc} alt={info.name} className={`${rx('w-3 h-3', 'w-4 h-4')} object-contain`} /> : <span>{info.icon}</span>}
+                        <button onClick={() => !isDisabled && handleChipSelect(chipId, idx)} disabled={isDisabled && !isSelected} className={`flex items-center gap-1 ${rx('px-1 py-0.5', 'px-2 py-1')} rounded ${rx('text-[10px]', 'text-xs')} border transition-all ${isUsed ? 'bg-slate-800 text-slate-500 border-slate-700' : isSelected ? 'bg-red-800 text-white border-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]' : isDisabled ? 'bg-slate-900 text-slate-600 border-slate-800 opacity-50' : 'bg-slate-900 text-red-300 border-red-900 hover:bg-slate-800'}`}>
+                          <span>{info.icon}</span>
                           <span className={`${rx('hidden', 'inline')}`}>{info.name}</span>
                         </button>
                       </div>
@@ -1759,59 +2081,63 @@
             </div>
             
             <div className={`flex flex-col items-end ${rx('gap-1', 'gap-2')}`}>
-              {gameMode === 'MULTI' && <div className={`text-green-400 font-mono ${rx('text-[10px]', 'text-sm')} bg-slate-800/80 px-2 py-0.5 rounded border border-green-600/50 flex items-center gap-1`}><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span><span className={`${rx('hidden', 'inline')}`}>ROOM: </span>{roomId}</div>}
-              <div className={`flex ${rx('flex-col items-end gap-1', 'flex-row items-center gap-4')} bg-slate-800/90 border border-slate-600 ${rx('px-3 py-1 rounded-lg', 'px-5 py-2 rounded-full')} shadow-lg pointer-events-auto`}>
+              {gameMode === 'MULTI' && <div className={`text-red-400 font-mono ${rx('text-[10px]', 'text-sm')} bg-black/80 px-2 py-0.5 rounded border border-red-900 flex items-center gap-1`}><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span><span className={`${rx('hidden', 'inline')}`}>HOST: </span>{roomId}</div>}
+              {gameState.isTeamBattle && <div className={`text-emerald-400 font-bold ${rx('text-[10px]', 'text-sm')} bg-black/80 px-2 py-0.5 rounded border border-emerald-900 flex items-center gap-1`}><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>2vs2 混合感染</div>}
+              <div className={`flex ${rx('flex-col items-end gap-1', 'flex-row items-center gap-4')} bg-black/80 border border-slate-800 ${rx('px-3 py-1 rounded-lg', 'px-5 py-2 rounded-full')} shadow-lg pointer-events-auto`}>
                 <div className={`flex items-center gap-1 text-slate-300 ${rx('text-xs', 'text-base')}`}>
-                  <span className="text-sky-400">📅</span> <span className="font-bold">{gameState.turn}日目 <span className={`${rx('hidden', 'inline')}`}>({DAYS[currentDayIndex]})</span></span>
+                  <span className="text-red-500 text-sm md:text-base">⏳</span> <span className="font-bold">第{gameState.turn}期 <span className={`${rx('hidden', 'inline')}`}></span></span>
                 </div>
-                <div className={`flex items-center gap-1 text-slate-300 ${rx('border-none pl-0 text-xs', 'border-l border-slate-600 pl-4 text-base')}`}>
-                  {renderWeatherIcon(gameState.weather, rx('w-4 h-4', 'w-6 h-6'), loadedImages)} <span className={`font-bold ${rx('hidden', 'inline')}`}>{getWeatherName(gameState.weather)}</span>
+                <div className={`flex items-center gap-1 text-slate-300 ${rx('border-none pl-0 text-xs', 'border-l border-slate-700 pl-4 text-base')}`}>
+                  {renderWeatherIcon(gameState.weather, rx('w-4 h-4', 'w-6 h-6'))} <span className={`font-bold ${rx('hidden', 'inline')}`}>{getWeatherName(gameState.weather)}</span>
                 </div>
-                <div className={`flex items-center gap-1 text-lime-400 ${rx('border-none pl-0 text-[10px]', 'border-l border-slate-600 pl-4 text-sm')} font-bold`}>
-                  🗑️ <span className={`${rx('hidden', 'inline')}`}>回収日: </span>{DAYS[gameState.trashDays[0]]}・{DAYS[gameState.trashDays[1]]}
+                <div className={`flex items-center gap-1 text-orange-400 ${rx('border-none pl-0 text-[10px]', 'border-l border-slate-700 pl-4 text-sm')} font-bold`}>
+                  💀 <span className={`${rx('hidden', 'inline')}`}>崩壊まであと: </span>{gameState.nextTrashTurn - gameState.turn} 期
                 </div>
               </div>
             </div>
           </div>
 
           <div className="flex-1 w-full max-w-[1200px] flex flex-col min-h-0 relative z-0">
-            <div className="flex-1 relative border border-slate-700 bg-slate-800/50 rounded-t-xl overflow-hidden touch-none" ref={mapContainerRef}>
+            <div className={`flex-1 relative border border-slate-800 bg-black/50 rounded-t-xl overflow-hidden touch-none ${gameState?.immuneTargets?.length > 0 ? 'immune-target' : ''}`} ref={mapContainerRef}>
               
               <canvas ref={canvasRef} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp} onPointerLeave={handlePointerUp} onClick={handleCanvasClick} className={`absolute top-0 left-0 w-full h-full ${phase==='INPUT' ? 'cursor-crosshair' : ''}`} />
               
               <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20 pointer-events-auto">
-                <button onClick={()=>zoom(1.2)} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:p-3 rounded-lg text-white border border-slate-600 shadow-lg text-lg">➕</button>
-                <button onClick={()=>zoom(0.8)} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:p-3 rounded-lg text-white border border-slate-600 shadow-lg text-lg">➖</button>
-                <button onClick={resetCamera} className="bg-slate-800/80 hover:bg-slate-700 p-2 md:p-3 rounded-lg text-white border border-slate-600 shadow-lg text-lg">🔄</button>
+                <button onClick={()=>zoom(1.2)} className="bg-black/80 hover:bg-slate-900 p-2 md:p-3 rounded-lg text-slate-300 border border-slate-700 shadow-lg text-lg">➕</button>
+                <button onClick={()=>zoom(0.8)} className="bg-black/80 hover:bg-slate-900 p-2 md:p-3 rounded-lg text-slate-300 border border-slate-700 shadow-lg text-lg">➖</button>
+                <button onClick={resetCamera} className="bg-black/80 hover:bg-slate-900 p-2 md:p-3 rounded-lg text-slate-300 border border-slate-700 shadow-lg text-lg">🔄</button>
               </div>
 
               {gameMode === 'TUTORIAL' && phase === 'INPUT' && (
                 <div className={`absolute ${rx('top-4 w-[90%]', 'top-8 w-full max-w-3xl')} left-1/2 transform -translate-x-1/2 z-20 pointer-events-none`}>
-                  <div className="bg-slate-800/95 border border-sky-500 text-sky-100 p-3 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.4)] pointer-events-auto text-center">
-                    <h3 className={`${rx('text-sm', 'text-lg')} font-bold text-yellow-400 mb-1`}>{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.title}</h3>
+                  <div className="bg-black/95 border border-red-900 text-red-100 p-3 rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.3)] pointer-events-auto text-center">
+                    <h3 className={`${rx('text-sm', 'text-lg')} font-bold text-yellow-500 mb-1`}>{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.title}</h3>
                     <p className={`${rx('text-xs', 'text-sm')} whitespace-pre-wrap leading-relaxed`}>{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.message}</p>
                   </div>
                 </div>
               )}
 
               {phase === 'ANIMATING' && (
-                 <div className={`absolute ${rx('top-4 text-xs px-4 py-1', 'top-8 text-xl px-8 py-2')} left-1/2 transform -translate-x-1/2 text-white font-black tracking-widest bg-slate-900/80 border border-yellow-500/50 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.3)] z-10 whitespace-nowrap`}>
-                   {animRef.current.progress < 0.25 ? 'PHASE 1: 準備 (カット・設備強化)' : 
-                    animRef.current.progress < 0.6 ? 'PHASE 2: 輸送 & 襲撃' : 
-                    animRef.current.progress < 0.85 ? 'PHASE 3: 解決 (乱戦・ショバ強奪)' : 'PHASE 4: 資源回収・天候効果'}
+                 <div className={`absolute ${rx('top-4 text-xs px-4 py-1', 'top-8 text-xl px-8 py-2')} left-1/2 transform -translate-x-1/2 text-white font-black tracking-widest bg-black/90 border border-red-500 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.5)] z-10 whitespace-nowrap`}>
+                   {animRef.current.progress < 0.25 ? 'PHASE 1: 変異・壁硬化' : 
+                    animRef.current.progress < 0.6 ? 'PHASE 2: 浸潤 & 感染' : 
+                    animRef.current.progress < 0.85 ? 'PHASE 3: 免疫・組織奪取' : 'PHASE 4: 増殖・生体反応'}
                  </div>
               )}
 
               {phase === 'WAITING_FOR_OTHERS' && (
-                <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center z-40 pointer-events-auto">
-                  <span className={`${rx('text-4xl mb-4', 'text-6xl mb-6')} animate-spin text-sky-400 inline-block`}>⏳</span>
-                  <h2 className={`${rx('text-lg mb-6', 'text-3xl mb-8')} font-black text-white tracking-widest drop-shadow-lg`}>他の派閥の行動を待機中...</h2>
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-40 pointer-events-auto">
+                  <span className={`${rx('text-4xl mb-4', 'text-6xl mb-6')} animate-spin text-red-500 inline-block`}>🧬</span>
+                  <h2 className={`${rx('text-lg mb-6', 'text-3xl mb-8')} font-black text-white tracking-widest drop-shadow-lg`}>他菌株の変異を待機中...</h2>
                   <div className="flex flex-wrap justify-center gap-2 px-4">
                      {Object.values(gameData?.players || {}).filter(p => gameState.alivePlayers?.includes(p)).map(p => {
                        const isReady = gameData?.turnReady?.[p];
                        return (
-                         <div key={p} className={`px-4 py-2 rounded-lg border flex flex-col items-center gap-1 shadow-lg transition-colors ${isReady ? 'bg-sky-600/80 border-sky-400 text-white' : 'bg-slate-800/80 border-slate-600 text-slate-400'}`}>
-                           <span className={`font-bold ${rx('text-sm', 'text-lg')}`}>派閥 {p}</span><span className="text-[10px]">{isReady ? '準備完了' : '考慮中...'}</span>
+                         <div key={p} className={`px-4 py-2 rounded-lg border flex flex-col items-center gap-1 shadow-lg transition-colors ${isReady ? 'bg-red-900/80 border-red-600 text-white' : 'bg-slate-900/80 border-slate-700 text-slate-500'}`}>
+                           <span className={`font-bold ${rx('text-sm', 'text-lg')}`}>
+                             {gameData?.playerNames?.[gameData.playerUids.find(uid => gameData.players[uid] === p)] || `菌株 ${p}`}
+                           </span>
+                           <span className="text-[10px]">{isReady ? '変異完了' : '代謝中...'}</span>
                          </div>
                        );
                      })}
@@ -1820,16 +2146,16 @@
               )}
 
               {phase === 'TUTORIAL_CLEAR' && (
-                <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 text-center">
-                  <h1 className={`${rx('text-4xl', 'text-7xl')} font-black mb-4 text-green-400 drop-shadow-lg`}>STAGE CLEAR!</h1>
+                <div className="absolute inset-0 bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 text-center">
+                  <h1 className={`${rx('text-4xl', 'text-7xl')} font-black mb-4 text-red-500 drop-shadow-[0_0_20px_rgba(239,68,68,0.5)]`}>INFECTION COMPLETE!</h1>
                   {tutorialStage < PLAYABLE_TUTORIALS.length ? (
-                    <button onClick={() => startPlayableTutorial(tutorialStage + 1)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>
-                      次のステージへ ▶
+                    <button onClick={() => startPlayableTutorial(tutorialStage + 1)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-slate-800 border border-red-900 hover:bg-slate-700 text-white font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>
+                      次の組織へ ▶
                     </button>
                   ) : (
                     <div className="flex flex-col items-center">
-                      <p className={`text-yellow-400 ${rx('text-lg mb-4', 'text-2xl mb-6')} font-bold`}>全てのチュートリアルをクリアしました！</p>
-                      <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl transition-all shadow-xl pointer-events-auto`}>
+                      <p className={`text-yellow-500 ${rx('text-lg mb-4', 'text-2xl mb-6')} font-bold`}>全てのチュートリアルをクリアしました！</p>
+                      <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-slate-800 border border-red-900 hover:bg-slate-700 text-white font-bold rounded-xl transition-all shadow-xl pointer-events-auto`}>
                         タイトルへ戻る
                       </button>
                     </div>
@@ -1838,16 +2164,24 @@
               )}
 
               {phase === 'GAME_OVER' && (
-                <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 text-center">
-                  <h1 className={`${rx('text-5xl', 'text-7xl')} font-black mb-4 drop-shadow-lg`} style={{ color: gameState.winner ? COLORS.players[gameState.winner] : '#cbd5e1' }}>
-                    {gameState.winner === myPlayerNum ? 'VICTORY' : gameState.winner ? `派閥 ${gameState.winner} の勝利` : 'DRAW'}
-                  </h1>
-                  {gameState.winner !== myPlayerNum && gameState.winner !== null && <p className={`text-red-400 ${rx('text-xl', 'text-2xl')} font-bold mb-4 tracking-widest`}>地下帝国 陥落</p>}
+                <div className="absolute inset-0 bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center z-50 p-4 text-center">
+                  {gameState.isTeamBattle ? (
+                    <h1 className={`${rx('text-4xl', 'text-7xl')} font-black mb-4 drop-shadow-lg`} style={{ color: gameState.winner === 1 ? COLORS.players[1] : (gameState.winner === 2 ? COLORS.players[3] : '#cbd5e1'), textShadow: '0 0 20px currentColor' }}>
+                      {gameState.winner === getTeam(myPlayerNum, true) ? 'PANDEMIC COMPLETE!' : gameState.winner ? `TEAM ${gameState.winner} DOMINATED!` : 'COEXISTENCE (DRAW)'}
+                    </h1>
+                  ) : (
+                    <h1 className={`${rx('text-4xl', 'text-7xl')} font-black mb-4 drop-shadow-lg`} style={{ color: gameState.winner ? COLORS.players[gameState.winner] : '#cbd5e1', textShadow: '0 0 20px currentColor' }}>
+                      {gameState.winner === myPlayerNum ? 'PANDEMIC COMPLETE!' : gameState.winner ? `菌株 ${gameState.winner} の支配` : 'COEXISTENCE'}
+                    </h1>
+                  )}
+                  {((gameState.isTeamBattle && gameState.winner !== getTeam(myPlayerNum, true) && gameState.winner !== null) || (!gameState.isTeamBattle && gameState.winner !== myPlayerNum && gameState.winner !== null)) && (
+                      <p className={`text-red-500 ${rx('text-xl', 'text-2xl')} font-bold mb-4 tracking-widest`}>免疫による完全排除</p>
+                  )}
                   
                   {gameMode === 'TUTORIAL' ? (
-                     <button onClick={() => startPlayableTutorial(tutorialStage)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>リトライ</button>
+                     <button onClick={() => startPlayableTutorial(tutorialStage)} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-slate-800 border border-red-900 hover:bg-slate-700 text-white font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>再感染 (リトライ)</button>
                   ) : (
-                     <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-white hover:bg-slate-200 text-slate-900 font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>タイトルへ戻る</button>
+                     <button onClick={quitGame} className={`${rx('px-6 py-3 text-base', 'px-10 py-4 text-xl')} bg-slate-800 border border-red-900 hover:bg-slate-700 text-white font-bold rounded-xl mt-4 transition-all shadow-xl pointer-events-auto`}>タイトルへ戻る</button>
                   )}
                 </div>
               )}
@@ -1856,54 +2190,67 @@
               {renderSlider()}
             </div>
 
-            <div className="h-3 md:h-4 bg-slate-700 cursor-row-resize hover:bg-sky-500 transition-colors z-30 w-full flex-shrink-0 flex items-center justify-center border-x border-slate-700 pointer-events-auto" onPointerDown={handleResizerPointerDown} style={{ touchAction: 'none' }}>
-               <div className="w-12 h-1 bg-slate-400 rounded-full pointer-events-none"></div>
+            <div className="h-3 md:h-4 bg-slate-900 cursor-row-resize hover:bg-red-900 transition-colors z-30 w-full flex-shrink-0 flex items-center justify-center border-x border-slate-800 pointer-events-auto" onPointerDown={handleResizerPointerDown} style={{ touchAction: 'none' }}>
+               <div className="w-12 h-1 bg-slate-600 rounded-full pointer-events-none"></div>
             </div>
 
-            <div style={{ height: bottomPanelHeight }} className="w-full flex flex-col md:flex-row gap-2 md:gap-6 px-2 md:px-4 py-2 flex-shrink-0 border-x border-b border-slate-700 rounded-b-xl bg-slate-900 pointer-events-auto overflow-y-auto">
-              <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-2 md:p-4 relative flex flex-col min-h-0">
-                <h3 className={`text-slate-400 ${rx('text-xs', 'text-sm')} font-bold mb-2 flex items-center justify-between flex-shrink-0`}>
-                  <div className="flex items-center gap-1">🪙 行動予定 <span className={`${rx('hidden', 'inline')}`}>(1ショバにつき1行動)</span></div>
-                  <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers?.includes(myPlayerNum)} className={`flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 ${rx('px-2 py-1 text-[10px]', 'px-3 py-1 text-xs')} rounded transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed`}>
-                    ✨ <span className={`${rx('hidden', 'inline')}`}>参謀AIに</span>相談
+            <div style={{ height: bottomPanelHeight }} className={`w-full flex ${rx('flex-col gap-2 px-2 py-2 pb-6', 'flex-row gap-6 px-4 py-2 md:pb-2')} flex-shrink-0 border-x border-b border-slate-800 rounded-b-xl bg-black pointer-events-auto`}>
+              <div className={`flex-1 bg-slate-900/50 border border-slate-800 rounded-xl ${rx('p-2', 'p-4')} relative flex flex-col min-h-0 overflow-y-auto`}>
+                <h3 className={`text-slate-500 ${rx('text-xs', 'text-sm')} font-bold mb-2 flex items-center justify-between flex-shrink-0`}>
+                  <div className="flex items-center gap-1">🧬 代謝予定 <span className={`${rx('hidden', 'inline')}`}>(1組織につき1行動)</span></div>
+                  <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers?.includes(myPlayerNum)} className={`flex items-center gap-1 bg-red-900/30 hover:bg-red-900/60 text-red-400 ${rx('px-2 py-1 text-[10px]', 'px-3 py-1 text-xs')} rounded transition-colors border border-red-900/50 disabled:opacity-50 disabled:cursor-not-allowed`}>
+                    ✨ <span className={`${rx('hidden', 'inline')}`}>プラスミドAIに</span>解析
                   </button>
                 </h3>
                 {!gameState?.alivePlayers?.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
-                   <div className={`text-red-400 ${rx('text-xs', 'text-sm')} flex-shrink-0`}>あなたの派閥は全滅しました。観戦モードです。</div>
+                   <div className={`text-red-600 ${rx('text-xs', 'text-sm')} flex-shrink-0`}>あなたの菌株は排除されました。観測モードです。</div>
                 ) : (
-                  <div className={`flex flex-wrap ${rx('gap-1', 'gap-2')} overflow-y-auto content-start`}>
+                  <div className={`flex flex-wrap ${rx('gap-1', 'gap-2')} content-start`}>
                     {playerCommands.map((cmd, idx) => (
-                      <div key={idx} className={`border rounded ${rx('px-2 py-1 text-[10px]', 'px-3 py-1.5 text-sm')} flex items-center gap-1 shadow ${cmd.type === 'use_chip' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-200' : 'bg-slate-700 border-slate-600 text-white'}`}>
+                      <div key={idx} className={`border rounded ${rx('px-2 py-1 text-[10px]', 'px-3 py-1.5 text-sm')} flex items-center gap-1 shadow ${cmd.type === 'use_chip' ? 'bg-red-950/80 border-red-800 text-red-200' : 'bg-slate-800 border-slate-700 text-slate-300'}`}>
                         {cmd.type === 'move' && (() => {
                            const isStealth = playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === cmd.nodeId);
-                           return <><span className="text-sky-400">➡️</span> {cmd.nodeId} → {cmd.targetId} ({cmd.amount}) {isStealth && '(隠密)'}</>;
+                           return <><span className="text-red-500">➡️</span> {cmd.nodeId} → {cmd.targetId} ({cmd.amount}) {isStealth && '(擬態)'}</>;
                         })()}
-                        {cmd.type === 'toggle_mode' && <><span className="text-purple-400">📡</span> {cmd.nodeId} 遠隔切替</>}
-                        {cmd.type === 'upgrade' && <><span className="text-emerald-400">⛺</span> {cmd.nodeId} 設備強化</>}
-                        {cmd.type === 'cut' && <><span className="text-red-400">✂️</span> {cmd.nodeId}-{cmd.targetId} 切断</>}
+                        {cmd.type === 'toggle_mode' && <><span className="text-purple-500">〰️</span> {cmd.nodeId} 芽胞化</>}
+                        {cmd.type === 'upgrade' && <><span className="text-emerald-500">🛠️</span> {cmd.nodeId} 膜形成</>}
+                        {cmd.type === 'cut' && <><span className="text-orange-500">✂️</span> {cmd.nodeId}-{cmd.targetId} 硬化</>}
                         {cmd.type === 'use_chip' && (() => {
                           const info = CHIP_TYPES[cmd.chip];
-                          const imgSrc = loadedImages[info.imgKey]?.src;
                           return (
                             <>
-                              {imgSrc ? <img src={imgSrc} className={`${rx('w-3 h-3', 'w-4 h-4')} object-contain`}/> : <span className="text-indigo-400">{info.icon}</span>}
+                              <span className="text-red-400">{info.icon}</span>
                               <span className={`${rx('hidden', 'inline')}`}>{info.name}</span> {cmd.targetId && `-> ${cmd.targetId}`}
                             </>
                           );
                         })()}
-                        {phase === 'INPUT' && <button onClick={() => removeCommand(cmd)} className="text-slate-400 hover:text-white ml-1">❌</button>}
+                        {phase === 'INPUT' && <button onClick={() => removeCommand(cmd)} className="text-slate-600 hover:text-white ml-1">✖</button>}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-              <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className={`flex-shrink-0 w-full md:w-64 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-black rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg ${rx('h-14 text-xl', 'h-auto text-2xl')}`}>
-                <span className={`${rx('text-xl', 'text-2xl')}`}>▶️</span> {gameState?.alivePlayers?.includes(myPlayerNum) ? '行動確定' : '待機中'}
+              <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className={`flex-shrink-0 w-full md:w-64 bg-gradient-to-r from-red-900 to-red-700 hover:from-red-800 disabled:from-slate-800 disabled:to-slate-900 disabled:text-slate-700 disabled:border-slate-800 border border-red-600 text-white font-black rounded-xl transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(220,38,38,0.2)] ${rx('h-14 text-xl', 'h-auto text-2xl')}`}>
+                <span className={`${rx('text-xl', 'text-2xl')}`}>🧬</span> {gameState?.alivePlayers?.includes(myPlayerNum) ? '変異確定' : '代謝中'}
               </button>
             </div>
           </div>
 
           {renderMenu()}
+          
+          {/* AI Advice Panel */}
+          {showAiPanel && (
+            <div className="fixed inset-0 bg-black/80 z-[300] flex items-center justify-center p-4">
+              <div className="bg-slate-900 p-6 rounded-xl border border-red-900 shadow-[0_0_30px_rgba(220,38,38,0.4)] max-w-lg w-full relative">
+                <button onClick={() => setShowAiPanel(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white text-xl">✖</button>
+                <h3 className="text-xl font-bold text-red-400 mb-4 flex items-center gap-2"><span>🧬</span> プラスミドAI 解析結果</h3>
+                <div className="bg-black border border-slate-800 rounded-lg p-4 min-h-[120px] text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
+                  {isAiLoading ? <span className="animate-pulse text-red-500">宿主環境を解析中...</span> : aiAdvice}
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       );
     }
