@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ホームレス・サバイバル 〜地下帝国のドン〜</title>
+  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (ローカル対戦版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -69,37 +69,109 @@
     const SHOBA_EMOJI = { station: '🚉', bench: '🪑', underpass: '🌉', ruin: '🏚️', dump: '🗑️' };
     const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
 
-    // --- チュートリアル用のデータ ---
+    // --- チュートリアルスライド（ドキュメント用） ---
     const TUTORIAL_SLIDES = [
+      { title: "👑 地下帝国のドンを目指せ", icon: "⛺", content: "お前は路上を生き抜く派閥のリーダーだ。他の派閥と「ショバ（居場所）」を奪い合い、自分以外のすべての派閥を街から追い出せば勝利となる。\nショバにある数字は「資源（空き缶や仲間の数）」だ。この資源を他のショバに送り込んで、襲撃や防衛を行うんだ。" },
+      { title: "🛒 カチコミと移動", icon: "➡️", content: "自分のショバをクリックするとメニューが開く。\n「輸送」を選び、隣接するショバを選択して送り込む資源の量を決めろ。\n全員が行動を「確定」すると、一斉に移動と乱闘が始まる【同時ターン制】だ。相手の裏をかけ！" },
+      { title: "🔨 設備の強化 と ✂️ 通行止め", icon: "🛠️", content: "【設備強化】: 30資源を消費してショバを強化（ブルーシート→トタン→プレハブ）できる。最大蓄積量と毎ターンの資源回収量が増えるぞ。\n【カット】: 10資源を消費して、指定した道を1ターンの間「通行止め」にする。バリケードを築いて敵のカチコミを防ぐ防衛の要だ。" },
+      { title: "📡 遠隔モード (出稼ぎ)", icon: "📡", content: "「遠隔切替」を行うと、そのショバでの毎ターンの資源回収が止まる代わりに、2マス先まで（一方通行を無視して）一気にカチコミに行けるようになる。\nただし、2マス先への遠征は道中で資源を落とす「ロス（減衰）」が発生する。ショバのレベルを上げればロスは減るぜ。" },
+      { title: "🗑️ ゴミの日 と 📦 謎の段ボール", icon: "🗑️", content: "【ゴミ捨て場】は普段はただの空き地だが、「ゴミの日（火曜・金曜など）」になると大量の資源が不法投棄される宝の山になる！\nまた、定期的にマップに現れる【謎の段ボール】を攻撃して体力を0にすると、戦局をひっくり返す「強力なアイテム」を拾えるぞ。" },
+      { title: "⚔️ 血みどろの乱戦", icon: "⚔️", content: "複数の派閥が同じショバにカチコミをかけると、入り乱れての「大乱戦」に発展する。\nお互いの資源がランダムに削り合いとなり、最後まで立っていた（資源が多かった）派閥がそのショバをぶんどる仕組みだ。\n「拾った酒」で攻撃力を倍増させるなど、アイテムを汚く使って勝ち残れ！" }
+    ];
+
+    // --- プレイアブル チュートリアルステージ定義 ---
+    const PLAYABLE_TUTORIALS = [
       {
-        title: "👑 地下帝国のドンを目指せ",
-        icon: "⛺",
-        content: "お前は路上を生き抜く派閥のリーダーだ。他の派閥と「ショバ（居場所）」を奪い合い、自分以外のすべての派閥を街から追い出せば勝利となる。\nショバにある数字は「資源（空き缶や仲間の数）」だ。この資源を他のショバに送り込んで、襲撃や防衛を行うんだ。"
+        id: 1,
+        title: "STAGE 1: 路上デビュー",
+        message: "まずは隣の中立拠点（公園のベンチ）を占領してみよう。\n自分の拠点（駅の隅っこ）をクリックして【輸送】を選び、隣の拠点をクリックだ。\n送る量を決めたら右下の【行動確定】を押せ！",
+        setup: () => ({
+          nodes: [
+            { id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
+            { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'bench', level: 1, mode: 'normal' }
+          ],
+          edges: [{ s: 1, t: 2, isOneWay: false }],
+          allowedActions: ['move'],
+          playerCount: 1,
+        }),
+        cpuLogic: () => [],
+        checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1
       },
       {
-        title: "🛒 カチコミと移動",
-        icon: "➡️",
-        content: "自分のショバをクリックするとメニューが開く。\n「輸送」を選び、隣接するショバを選択して送り込む資源の量を決めろ。\n全員が行動を「確定」すると、一斉に移動と乱闘が始まる【同時ターン制】だ。相手の裏をかけ！"
+        id: 2,
+        title: "STAGE 2: 縄張り争い",
+        message: "右側に敵の派閥がうろついている。相手の拠点にカチコミをかけて奪い取れ！\n相手より多くの資源（エネルギー）を送り込めば勝てるぞ。",
+        setup: () => ({
+          nodes: [
+            { id: 1, x: 250, y: 300, owner: 1, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
+            { id: 2, x: 650, y: 300, owner: 2, energy: 20, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
+          ],
+          edges: [{ s: 1, t: 2, isOneWay: false }],
+          allowedActions: ['move'],
+          playerCount: 2,
+        }),
+        cpuLogic: () => [], // 動かない
+        checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1 || !state.alivePlayers.includes(2)
       },
       {
-        title: "🔨 設備の強化 と ✂️ 通行止め",
-        icon: "🛠️",
-        content: "【設備強化】: 30資源を消費してショバを強化（ブルーシート→トタン→プレハブ）できる。最大蓄積量と毎ターンの資源回収量が増えるぞ。\n【カット】: 10資源を消費して、指定した道を1ターンの間「通行止め」にする。バリケードを築いて敵のカチコミを防ぐ防衛の要だ。"
+        id: 3,
+        title: "STAGE 3: 地盤固め",
+        message: "資源が30以上溜まると【設備強化】ができる。\nレベルを上げると最大備蓄量と毎ターンの回復量が増えるぞ。\nターンを進めて資源を貯め、自分の拠点をLv2（トタン屋根）にしてみよう。",
+        setup: () => ({
+          nodes: [
+            { id: 1, x: 450, y: 300, owner: 1, energy: 10, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
+          ],
+          edges: [],
+          allowedActions: ['upgrade', 'move'],
+          playerCount: 1,
+        }),
+        cpuLogic: () => [],
+        checkWin: (state) => state.nodes.find(n => n.id === 1)?.level >= 2
       },
       {
-        title: "📡 遠隔モード (出稼ぎ)",
-        icon: "📡",
-        content: "「遠隔切替」を行うと、そのショバでの毎ターンの資源回収が止まる代わりに、2マス先まで（一方通行を無視して）一気にカチコミに行けるようになる。\nただし、2マス先への遠征は道中で資源を落とす「ロス（減衰）」が発生する。ショバのレベルを上げればロスは減るぜ。"
+        id: 4,
+        title: "STAGE 4: 鉄壁の防衛",
+        message: "敵の大群が毎ターン攻めてくる！\n【カット(✂️)】を使って道を1ターン封鎖し、相手の攻撃をやり過ごせ。\nコストは10かかるが、防衛の要だ。3ターン耐え抜くか、敵を倒せばクリアだ。",
+        setup: () => ({
+          nodes: [
+            { id: 1, x: 250, y: 300, owner: 1, energy: 40, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
+            { id: 2, x: 650, y: 300, owner: 2, energy: 100, maxEnergy: 200, generation: 15, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
+          ],
+          edges: [{ s: 1, t: 2, isOneWay: false }],
+          allowedActions: ['move', 'upgrade', 'cut'],
+          playerCount: 2,
+        }),
+        cpuLogic: (state) => {
+          const cmds = [];
+          const enemyNode = state.nodes.find(n => n.id === 2);
+          if (enemyNode && enemyNode.energy > 20) {
+            cmds.push({ type: 'move', nodeId: 2, targetId: 1, amount: 20, playerId: 2 });
+          }
+          return cmds;
+        },
+        checkWin: (state) => state.turn > 3 || state.nodes.find(n => n.id === 2)?.owner === 1
       },
       {
-        title: "🗑️ ゴミの日 と 📦 謎の段ボール",
-        icon: "🗑️",
-        content: "【ゴミ捨て場】は普段はただの空き地だが、「ゴミの日（火曜・金曜など）」になると大量の資源が不法投棄される宝の山になる！\nまた、定期的にマップに現れる【謎の段ボール】を攻撃して体力を0にすると、戦局をひっくり返す「強力なアイテム」を拾えるぞ。"
-      },
-      {
-        title: "⚔️ 血みどろの乱戦",
-        icon: "⚔️",
-        content: "複数の派閥が同じショバにカチコミをかけると、入り乱れての「大乱戦」に発展する。\nお互いの資源がランダムに削り合いとなり、最後まで立っていた（資源が多かった）派閥がそのショバをぶんどる仕組みだ。\n「拾った酒」で攻撃力を倍増させるなど、アイテムを汚く使って勝ち残れ！"
+        id: 5,
+        title: "STAGE 5: 出稼ぎとアイテム",
+        message: "【遠隔切替(📡)】をすると、回復が止まる代わりに2マス先までカチコミできる。ただし輸送ロス（半減）があるぞ。\n上の謎の段ボールを壊して「攻撃力倍増」アイテムを取り、遠くにいる敵を倒せ！",
+        setup: () => ({
+          nodes: [
+            { id: 1, x: 150, y: 300, owner: 1, energy: 80, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
+            { id: 2, x: 450, y: 300, owner: 0, energy: 50, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'underpass', level: 1, mode: 'normal' },
+            { id: 3, x: 750, y: 300, owner: 2, energy: 30, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
+            { id: 4, x: 450, y: 150, owner: 0, energy: 5, maxEnergy: 10, generation: 0, type: 'item', item: 'ATK_BOOST', level: 1, mode: 'normal' }
+          ],
+          edges: [
+            { s: 1, t: 2, isOneWay: false },
+            { s: 2, t: 3, isOneWay: false },
+            { s: 2, t: 4, isOneWay: false }
+          ],
+          allowedActions: ['move', 'upgrade', 'cut', 'toggle_mode', 'use_chip'],
+          playerCount: 2,
+        }),
+        cpuLogic: () => [], // 動かない
+        checkWin: (state) => state.nodes.find(n => n.id === 3)?.owner === 1 || !state.alivePlayers.includes(2)
       }
     ];
 
@@ -419,7 +491,6 @@
             node.energy += added; if (added > 0) animData.mines.push({ nodeId: node.id, amount: added });
           }
         }
-        // ★ 誰の陣地にもなっていないゴミ捨て場にはエネルギーを追加しない
         if (isTrashDay && node.type === 'dump') {
            if (node.owner !== 0) {
              const added = Math.min(node.maxEnergy - node.energy, 80);
@@ -451,7 +522,6 @@
         });
       });
 
-      // ★ 新しい戦闘・占領ロジック
       next.nodes.forEach(node => {
         const nodeInflows = inflows[node.id];
         const originalEnergy = node.energy;
@@ -577,7 +647,7 @@
     function NodeWars() {
       const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
 
-      const [gameMode, setGameMode] = useState(null); // 'SOLO' | 'HOST' | 'CLIENT'
+      const [gameMode, setGameMode] = useState(null); // 'SOLO' | 'HOST' | 'CLIENT' | 'TUTORIAL'
       const [roomId, setRoomId] = useState('');
       const [joinInput, setJoinInput] = useState('');
       const [errorMsg, setErrorMsg] = useState('');
@@ -586,8 +656,9 @@
       const [myPlayerNum, setMyPlayerNum] = useState(1);
 
       const [loadedImages, setLoadedImages] = useState({});
-      const [phase, setPhase] = useState('SETUP'); // 新たに 'TUTORIAL' フェーズを追加
-      const [tutorialPage, setTutorialPage] = useState(0); // チュートリアルの現在のスライド
+      const [phase, setPhase] = useState('SETUP'); 
+      const [tutorialPage, setTutorialPage] = useState(0); 
+      const [tutorialStage, setTutorialStage] = useState(1); // 現在のプレイアブルチュートリアルのステージ
 
       const [gameState, setGameState] = useState(null);
       const [playerCommands, setPlayerCommands] = useState([]); 
@@ -601,7 +672,6 @@
       const canvasRef = useRef(null);
       const animRef = useRef({ active: false, progress: 0, data: null });
       
-      // WebRTC P2P用
       const peerConnection = useRef(null);
       const dataChannel = useRef(null);
       const [localSdp, setLocalSdp] = useState('');
@@ -612,11 +682,13 @@
       const phaseRef = useRef(phase);
       const gameDataRef = useRef(gameData);
       const gameModeRef = useRef(gameMode);
+      const tutorialStageRef = useRef(tutorialStage);
 
       useEffect(() => { stateRef.current = gameState; }, [gameState]);
       useEffect(() => { phaseRef.current = phase; }, [phase]);
       useEffect(() => { gameDataRef.current = gameData; }, [gameData]);
       useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
+      useEffect(() => { tutorialStageRef.current = tutorialStage; }, [tutorialStage]);
 
       useEffect(() => {
         const loadImages = async () => {
@@ -643,178 +715,89 @@
         textArea.value = text;
         document.body.appendChild(textArea);
         textArea.select();
-        try {
-          document.execCommand('copy');
-          setCopiedText(true);
-          setTimeout(() => setCopiedText(false), 2000);
-        } catch (err) {
-          console.error(err);
-        }
+        try { document.execCommand('copy'); setCopiedText(true); setTimeout(() => setCopiedText(false), 2000); } 
+        catch (err) { console.error(err); }
         document.body.removeChild(textArea);
       };
 
       const setupDataChannel = (dc) => {
         dc.onopen = () => {
-          setSignalingStep(3);
-          setPhase('WAITING_ROOM');
-          if (gameModeRef.current === 'CLIENT') {
-            sendMessage({ type: 'JOIN_REQ', uid: myUid });
-          }
+          setSignalingStep(3); setPhase('WAITING_ROOM');
+          if (gameModeRef.current === 'CLIENT') sendMessage({ type: 'JOIN_REQ', uid: myUid });
         };
-        dc.onmessage = (e) => {
-          handleNetworkMessage(JSON.parse(e.data));
-        };
+        dc.onmessage = (e) => handleNetworkMessage(JSON.parse(e.data));
       };
 
       const sendMessage = (msg) => {
-        if (dataChannel.current && dataChannel.current.readyState === 'open') {
-          dataChannel.current.send(JSON.stringify(msg));
-        }
+        if (dataChannel.current && dataChannel.current.readyState === 'open') dataChannel.current.send(JSON.stringify(msg));
       };
 
       const handleNetworkMessage = (data) => {
-        const gMode = gameModeRef.current;
-        const currentPhase = phaseRef.current;
-        const gData = gameDataRef.current;
-
+        const gMode = gameModeRef.current, currentPhase = phaseRef.current, gData = gameDataRef.current;
         if (gMode === 'HOST') {
           if (data.type === 'JOIN_REQ') {
             if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
               if (!gData.playerUids.includes(data.uid)) {
                 const newNum = gData.playerUids.length + 1;
-                const newGameData = {
-                  ...gData,
-                  players: { ...gData.players, [data.uid]: newNum },
-                  playerUids: [...gData.playerUids, data.uid]
-                };
+                const newGameData = { ...gData, players: { ...gData.players, [data.uid]: newNum }, playerUids: [...gData.playerUids, data.uid] };
                 setGameData(newGameData);
                 sendMessage({ type: 'JOIN_ACK', targetUid: data.uid, playerNum: newNum, gameData: newGameData });
                 sendMessage({ type: 'ROOM_UPDATE', gameData: newGameData });
               }
             }
           } else if (data.type === 'CMD_SUBMIT') {
-            const newGameData = {
-              ...gData,
-              commands: { ...gData.commands, [data.playerNum]: data.commands },
-              turnReady: { ...gData.turnReady, [data.playerNum]: true }
-            };
+            const newGameData = { ...gData, commands: { ...gData.commands, [data.playerNum]: data.commands }, turnReady: { ...gData.turnReady, [data.playerNum]: true } };
             setGameData(newGameData);
             checkTurnResolve(newGameData, stateRef.current);
           }
         } else if (gMode === 'CLIENT') {
           if (data.type === 'JOIN_ACK' && data.targetUid === myUid) {
-            setMyPlayerNum(data.playerNum);
-            setGameData(data.gameData);
-            setPhase('WAITING_ROOM');
-          } else if (data.type === 'ROOM_UPDATE') {
-            setGameData(data.gameData);
-          } else if (data.type === 'GAME_START') {
-            setGameState(data.state);
-            setGameData(data.gameData);
-            setPhase('INPUT');
-          } else if (data.type === 'TURN_RESOLVE') {
-            startAnimation(stateRef.current, data.nextState, data.animData, data.allCommands, data.isGameOver);
-          }
+            setMyPlayerNum(data.playerNum); setGameData(data.gameData); setPhase('WAITING_ROOM');
+          } else if (data.type === 'ROOM_UPDATE') { setGameData(data.gameData);
+          } else if (data.type === 'GAME_START') { setGameState(data.state); setGameData(data.gameData); setPhase('INPUT');
+          } else if (data.type === 'TURN_RESOLVE') { startAnimation(stateRef.current, data.nextState, data.animData, data.allCommands, data.isGameOver); }
         }
       };
 
-      // --- HOST: 手動シグナリング開始 ---
       const startHosting = async (pCount) => {
-        setGameMode('HOST');
-        setMyPlayerNum(1);
-        setSignalingStep(1);
-        setGameData({
-          hostUid: myUid, status: 'WAITING', playerCount: pCount,
-          players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [],
-          commands: {}, turnReady: {}
-        });
-
+        setGameMode('HOST'); setMyPlayerNum(1); setSignalingStep(1);
+        setGameData({ hostUid: myUid, status: 'WAITING', playerCount: pCount, players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [], commands: {}, turnReady: {} });
         const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
         peerConnection.current = pc;
-
-        const dc = pc.createDataChannel('gameData');
-        dataChannel.current = dc;
-        setupDataChannel(dc);
-
-        pc.onicecandidate = (e) => {
-          if (!e.candidate) {
-            setLocalSdp(encodeSDP(pc.localDescription));
-          }
-        };
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+        const dc = pc.createDataChannel('gameData'); dataChannel.current = dc; setupDataChannel(dc);
+        pc.onicecandidate = (e) => { if (!e.candidate) setLocalSdp(encodeSDP(pc.localDescription)); };
+        const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
       };
 
       const acceptAnswer = async () => {
-        try {
-          const pc = peerConnection.current;
-          const answer = decodeSDP(remoteSdp);
-          await pc.setRemoteDescription(answer);
-        } catch (err) {
-          alert("回答コードが正しくありません。");
-          console.error(err);
-        }
+        try { await peerConnection.current.setRemoteDescription(decodeSDP(remoteSdp)); } 
+        catch (err) { alert("回答コードが正しくありません。"); console.error(err); }
       };
 
-      // --- CLIENT: 手動シグナリング開始 ---
-      const prepareJoining = () => {
-        setGameMode('CLIENT');
-        setSignalingStep(1);
-      };
+      const prepareJoining = () => { setGameMode('CLIENT'); setSignalingStep(1); };
 
       const createAnswer = async () => {
         try {
           setSignalingStep(2);
-          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-          peerConnection.current = pc;
-
-          pc.ondatachannel = (e) => {
-            dataChannel.current = e.channel;
-            setupDataChannel(e.channel);
-          };
-
-          pc.onicecandidate = (e) => {
-            if (!e.candidate) {
-              setLocalSdp(encodeSDP(pc.localDescription));
-            }
-          };
-
-          const offer = decodeSDP(remoteSdp);
-          await pc.setRemoteDescription(offer);
-
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-        } catch (err) {
-          alert("招待コードが正しくありません。");
-          setSignalingStep(1);
-          console.error(err);
-        }
+          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }); peerConnection.current = pc;
+          pc.ondatachannel = (e) => { dataChannel.current = e.channel; setupDataChannel(e.channel); };
+          pc.onicecandidate = (e) => { if (!e.candidate) setLocalSdp(encodeSDP(pc.localDescription)); };
+          await pc.setRemoteDescription(decodeSDP(remoteSdp));
+          const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
+        } catch (err) { alert("招待コードが正しくありません。"); setSignalingStep(1); console.error(err); }
       };
 
       const checkTurnResolve = (currentGData, currentState) => {
         if (phaseRef.current !== 'WAITING_FOR_OTHERS') return; 
-        
-        const humanPlayers = Object.values(currentGData.players);
-        const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
-        
+        const humanPlayers = Object.values(currentGData.players); const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
         const allReady = aliveHumanPlayers.every(p => currentGData.turnReady[p]);
         if (allReady && aliveHumanPlayers.length > 0) {
           const allCmds = [];
           aliveHumanPlayers.forEach(p => { if (currentGData.commands[p]) allCmds.push(...currentGData.commands[p]); });
-          const cpuCmds = generateCpuCommands(currentState, currentGData.cpuPlayers || []);
-          allCmds.push(...cpuCmds);
-          
+          const cpuCmds = generateCpuCommands(currentState, currentGData.cpuPlayers || []); allCmds.push(...cpuCmds);
           const { nextState, animData } = simulateTurn(currentState, allCmds);
-          
-          const nextGameData = { ...currentGData, commands: {}, turnReady: {} };
-          setGameData(nextGameData);
-          
-          sendMessage({
-            type: 'TURN_RESOLVE',
-            nextState, animData, allCommands: allCmds, isGameOver: nextState.isGameOver
-          });
-          
+          const nextGameData = { ...currentGData, commands: {}, turnReady: {} }; setGameData(nextGameData);
+          sendMessage({ type: 'TURN_RESOLVE', nextState, animData, allCommands: allCmds, isGameOver: nextState.isGameOver });
           startAnimation(currentState, nextState, animData, allCmds, nextState.isGameOver);
         }
       };
@@ -835,7 +818,19 @@
             const finalState = { ...nextState, nodes: cleanNodes, edges: cleanEdges };
             setGameState(finalState);
             setPlayerCommands([]);
-            setPhase(isGameOver ? 'GAME_OVER' : 'INPUT');
+            
+            if (gameModeRef.current === 'TUTORIAL') {
+              const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStageRef.current);
+              if (!finalState.alivePlayers.includes(1)) {
+                 setPhase('GAME_OVER'); // 敗北
+              } else if (stageDef.checkWin(finalState)) {
+                 setPhase('TUTORIAL_CLEAR'); // クリア
+              } else {
+                 setPhase('INPUT');
+              }
+            } else {
+              setPhase(isGameOver ? 'GAME_OVER' : 'INPUT');
+            }
           }
         };
         requestAnimationFrame(animate);
@@ -845,7 +840,7 @@
         let animationFrameId;
         const render = (time) => {
           const ctx = canvasRef.current?.getContext('2d');
-          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM' && phase !== 'TUTORIAL') {
+          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM' && phase !== 'TUTORIAL' && phase !== 'TUTORIAL_CLEAR') {
             drawCanvas(ctx, gameState, playerCommands, [], uiState, hoveredNode, animRef.current, time, phase);
           }
           animationFrameId = requestAnimationFrame(render);
@@ -854,25 +849,35 @@
         return () => cancelAnimationFrame(animationFrameId);
       }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum]); 
 
-      const startSoloGame = (playerCount) => {
-        setGameMode('SOLO');
+      // --- ゲームスタート制御 ---
+      const startPlayableTutorial = (stageId) => {
+        setGameMode('TUTORIAL');
+        setTutorialStage(stageId);
         setMyPlayerNum(1);
-        const mapData = generateMap(playerCount);
-        const alivePlayers = Array.from({length: playerCount}, (_, i) => i + 1);
-        const chips = {}; for (let i=1; i<=playerCount; i++) chips[i] = [];
-        const trashDays = [];
-        while (trashDays.length < 2) {
-          const r = Math.floor(Math.random() * 7);
-          if (!trashDays.includes(r)) trashDays.push(r);
-        }
-        trashDays.sort((a, b) => a - b);
+
+        const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === stageId);
+        const setupData = stageDef.setup();
+        const alivePlayers = Array.from({length: setupData.playerCount}, (_, i) => i + 1);
+        const chips = {}; for (let i=1; i<=setupData.playerCount; i++) chips[i] = [];
+
         const initialState = {
-          ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(),
-          trashDays, playerCount, alivePlayers, winner: null, isGameOver: false, chips
+          nodes: setupData.nodes, edges: setupData.edges, turn: 1, weather: 'sunny', forecast: 'sunny',
+          trashDays: [], playerCount: setupData.playerCount, alivePlayers, winner: null, isGameOver: false, chips
         };
+        
         setGameState(initialState);
         setPlayerCommands([]);
         setPhase('INPUT');
+      };
+
+      const startSoloGame = (playerCount) => {
+        setGameMode('SOLO'); setMyPlayerNum(1);
+        const mapData = generateMap(playerCount);
+        const alivePlayers = Array.from({length: playerCount}, (_, i) => i + 1);
+        const chips = {}; for (let i=1; i<=playerCount; i++) chips[i] = [];
+        const trashDays = []; while (trashDays.length < 2) { const r = Math.floor(Math.random() * 7); if (!trashDays.includes(r)) trashDays.push(r); } trashDays.sort((a, b) => a - b);
+        const initialState = { ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(), trashDays, playerCount, alivePlayers, winner: null, isGameOver: false, chips };
+        setGameState(initialState); setPlayerCommands([]); setPhase('INPUT');
       };
 
       const startGame = () => {
@@ -880,31 +885,15 @@
         const mapData = generateMap(gameData.playerCount);
         const alivePlayers = Array.from({length: gameData.playerCount}, (_, i) => i + 1);
         const chips = {}; for (let i=1; i<=gameData.playerCount; i++) chips[i] = [];
-        const trashDays = [];
-        while (trashDays.length < 2) {
-          const r = Math.floor(Math.random() * 7);
-          if (!trashDays.includes(r)) trashDays.push(r);
-        }
-        trashDays.sort((a, b) => a - b);
-        const initialState = {
-          ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(),
-          trashDays, playerCount: gameData.playerCount, alivePlayers, winner: null, isGameOver: false, chips
-        };
-        const humanPlayerIds = Object.values(gameData.players);
-        const cpuPlayers = alivePlayers.filter(p => !humanPlayerIds.includes(p));
-
+        const trashDays = []; while (trashDays.length < 2) { const r = Math.floor(Math.random() * 7); if (!trashDays.includes(r)) trashDays.push(r); } trashDays.sort((a, b) => a - b);
+        const initialState = { ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(), trashDays, playerCount: gameData.playerCount, alivePlayers, winner: null, isGameOver: false, chips };
+        const humanPlayerIds = Object.values(gameData.players); const cpuPlayers = alivePlayers.filter(p => !humanPlayerIds.includes(p));
         const newGameData = { ...gameData, cpuPlayers, status: 'PLAYING' };
-        setGameData(newGameData);
-        setGameState(initialState);
-        setPhase('INPUT');
-
-        sendMessage({
-          type: 'GAME_START',
-          state: initialState,
-          gameData: newGameData
-        });
+        setGameData(newGameData); setGameState(initialState); setPhase('INPUT');
+        sendMessage({ type: 'GAME_START', state: initialState, gameData: newGameData });
       };
 
+      // --- インタラクション ---
       const handleCanvasClick = (e) => {
         if (phase !== 'INPUT' || !gameState.alivePlayers.includes(myPlayerNum)) return;
         const rect = canvasRef.current.getBoundingClientRect();
@@ -937,7 +926,6 @@
         } else if (uiState.mode === 'SELECTING_TARGET') {
           const sourceNode = gameState.nodes.find(n => n.id === uiState.nodeId);
           const maxHops = sourceNode.mode === 'long_range' ? 2 : 1;
-          
           const distHop = getHopDistance(uiState.nodeId, clickedNode?.id, gameState.edges, [], sourceNode.mode === 'long_range');
 
           if (clickedNode && distHop > 0 && distHop <= maxHops) {
@@ -985,32 +973,30 @@
         });
         setUiState({ mode: 'IDLE', nodeId: null, targetId: null });
       };
+      
       const removeCommand = (cmdToRemove) => { setPlayerCommands(prev => prev.filter(c => c !== cmdToRemove)); };
 
       const handleLockIn = () => {
         if (phase !== 'INPUT') return;
         setUiState({ mode: 'IDLE', nodeId: null, targetId: null }); setSelectedChip(null);
 
-        if (gameMode === 'SOLO') {
+        if (gameMode === 'TUTORIAL') {
+          const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStage);
+          const cpuCmds = stageDef.cpuLogic(gameState);
+          const allCmds = [...playerCommands, ...cpuCmds];
+          const { nextState, animData } = simulateTurn(gameState, allCmds);
+          startAnimation(gameState, nextState, animData, allCmds, nextState.isGameOver);
+        } else if (gameMode === 'SOLO') {
           const cpuPlayers = gameState.alivePlayers.filter(p => p !== 1);
           const cpuCmds = generateCpuCommands(gameState, cpuPlayers);
           const allCmds = [...playerCommands, ...cpuCmds];
           const { nextState, animData } = simulateTurn(gameState, allCmds);
           startAnimation(gameState, nextState, animData, allCmds, nextState.isGameOver);
         } else if (gameMode === 'HOST') {
-          const newGameData = {
-            ...gameData,
-            commands: { ...gameData.commands, [myPlayerNum]: playerCommands },
-            turnReady: { ...gameData.turnReady, [myPlayerNum]: true }
-          };
-          setGameData(newGameData);
-          setPhase('WAITING_FOR_OTHERS');
-          checkTurnResolve(newGameData, gameState);
+          const newGameData = { ...gameData, commands: { ...gameData.commands, [myPlayerNum]: playerCommands }, turnReady: { ...gameData.turnReady, [myPlayerNum]: true } };
+          setGameData(newGameData); setPhase('WAITING_FOR_OTHERS'); checkTurnResolve(newGameData, gameState);
         } else if (gameMode === 'CLIENT') {
-          sendMessage({
-            type: 'CMD_SUBMIT', playerNum: myPlayerNum, commands: playerCommands
-          });
-          setPhase('WAITING_FOR_OTHERS');
+          sendMessage({ type: 'CMD_SUBMIT', playerNum: myPlayerNum, commands: playerCommands }); setPhase('WAITING_FOR_OTHERS');
         }
       };
 
@@ -1265,8 +1251,17 @@
       const renderMenu = () => {
         if (uiState.mode !== 'MENU_OPEN' || !gameState) return null;
         const node = gameState.nodes.find(n => n.id === uiState.nodeId); if (!node) return null;
+        
+        let allowedActions = ['move', 'toggle_mode', 'upgrade', 'cut'];
+        if (gameMode === 'TUTORIAL') {
+          const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStage);
+          if (stageDef) allowedActions = stageDef.allowedActions;
+        }
+
         const existingCmdType = playerCommands.find(c => c.nodeId === node.id)?.type || null;
-        const isMoveAllowed = !existingCmdType || existingCmdType === 'move', isOthersAllowed = !existingCmdType;
+        const isMoveAllowed = (!existingCmdType || existingCmdType === 'move') && allowedActions.includes('move');
+        const isOthersAllowed = !existingCmdType;
+
         const moveAssigned = playerCommands.filter(c => c.nodeId === node.id && c.type === 'move').reduce((s, c) => s + c.amount, 0);
         const availableEnergy = node.energy - moveAssigned;
         const menuWidth = 280, menuHeight = 80;
@@ -1283,20 +1278,29 @@
                 } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
               }}
               disabled={!isMoveAllowed || availableEnergy <= 0}
-              className={`flex flex-col items-center justify-center w-16 h-16 rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed`}
+              className={`flex-col items-center justify-center w-16 h-16 rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!allowedActions.includes('move') ? 'hidden' : 'flex'}`}
             >
               <span className="text-xl">➡️</span>
               <span className="text-[10px] mt-1 text-center leading-tight">輸送<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
             </button>
-            <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} disabled={!isOthersAllowed} className="flex flex-col items-center justify-center w-16 h-16 rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
+              disabled={!isOthersAllowed || !allowedActions.includes('toggle_mode')} 
+              className={`flex-col items-center justify-center w-16 h-16 rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!allowedActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
+            >
               <span className="text-xl">📡</span>
               {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">採掘再開<br/>(通常モード)</span> : <span className="text-[10px] mt-1 text-center leading-tight">遠隔切替<br/>(採掘停止)</span>}
             </button>
-            <button onClick={() => { if (node.energy >= 30 && node.level < 3) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3} className="flex flex-col items-center justify-center w-16 h-16 rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            <button onClick={() => { if (node.energy >= 30 && node.level < 3) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
+              disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3 || !allowedActions.includes('upgrade')} 
+              className={`flex-col items-center justify-center w-16 h-16 rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!allowedActions.includes('upgrade') ? 'hidden' : 'flex'}`}
+            >
               <span className="text-xl">🔨</span>
               <span className="text-[10px] mt-1 text-center leading-tight">設備強化<br/>(-30缶)</span>
             </button>
-            <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} disabled={!isOthersAllowed || node.energy < 10} className="flex flex-col items-center justify-center w-16 h-16 rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
+              disabled={!isOthersAllowed || node.energy < 10 || !allowedActions.includes('cut')} 
+              className={`flex-col items-center justify-center w-16 h-16 rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!allowedActions.includes('cut') ? 'hidden' : 'flex'}`}
+            >
               <span className="text-xl">✂️</span>
               <span className="text-[10px] mt-1 text-center leading-tight">カット<br/>(-10缶)</span>
             </button>
@@ -1307,14 +1311,14 @@
       const renderTargetPrompt = () => {
         if (selectedChip?.id === 'EMP' || selectedChip?.id === 'SABOTAGE') {
           return (
-            <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-indigo-500/20 text-indigo-300 px-6 py-2 rounded-full border border-indigo-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
+            <div className="absolute top-28 left-1/2 transform -translate-x-1/2 bg-indigo-500/20 text-indigo-300 px-6 py-2 rounded-full border border-indigo-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
               {CHIP_TYPES[selectedChip.id].name}: 対象の敵ショバを選択してください
             </div>
           );
         }
         if (selectedChip?.id === 'MINE_BOOST' || selectedChip?.id === 'ATK_BOOST') {
           return (
-            <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
+            <div className="absolute top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
               {CHIP_TYPES[selectedChip.id].name}: 対象の自派閥ショバを選択してください
             </div>
           );
@@ -1322,7 +1326,7 @@
         if (uiState.mode !== 'SELECTING_TARGET' || !gameState) return null;
         const isLong = gameState.nodes.find(n => n.id === uiState.nodeId)?.mode === 'long_range';
         return (
-          <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
+          <div className="absolute top-28 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
             🎯 {uiState.actionType === 'move' ? `対象ショバ（${isLong ? '2マス先まで・一方通行無視可' : '隣接方向のみ'}）を選択してください` : '切断する対象ショバを選択してください'}
           </div>
         );
@@ -1343,8 +1347,8 @@
         );
       };
 
-      // --- チュートリアル画面 ---
-      if (phase === 'TUTORIAL') {
+      // --- スライド式ドキュメント ---
+      if (phase === 'TUTORIAL_SLIDES') {
         const slide = TUTORIAL_SLIDES[tutorialPage];
         return (
           <div className="w-full h-screen bg-slate-900 flex items-center justify-center font-sans text-white p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
@@ -1398,7 +1402,7 @@
         return (
           <div className="w-full h-screen flex flex-col items-center justify-center font-sans relative" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
             
-            <button onClick={() => setPhase('TUTORIAL')} className="absolute top-6 right-6 bg-slate-800/80 hover:bg-slate-700 text-sky-300 px-6 py-3 rounded-xl border border-sky-500/50 transition-colors flex items-center gap-2 shadow-lg backdrop-blur font-bold z-50">
+            <button onClick={() => setPhase('TUTORIAL_SLIDES')} className="absolute top-6 right-6 bg-slate-800/80 hover:bg-slate-700 text-sky-300 px-6 py-3 rounded-xl border border-sky-500/50 transition-colors flex items-center gap-2 shadow-lg backdrop-blur font-bold z-50">
               <span className="text-2xl">📖</span> ルール＆遊び方
             </button>
 
@@ -1411,16 +1415,21 @@
             </div>
             
             {!gameMode ? (
-              <div className="flex gap-8 mt-4">
-                <button onClick={() => setGameMode('SOLO')} className="bg-slate-800/80 p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-72">
-                  <span className="text-6xl mb-4">👤</span>
-                  <h3 className="text-2xl text-white font-bold">ソロプレイ</h3>
-                  <p className="text-slate-400 mt-2 text-sm text-center">AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
+              <div className="flex gap-6 mt-4">
+                <button onClick={() => startPlayableTutorial(1)} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
+                  <span className="text-5xl mb-3">🎓</span>
+                  <h3 className="text-xl text-green-400 font-bold">チュートリアル</h3>
+                  <p className="text-slate-400 mt-2 text-xs text-center">基本を学びながら<br/>5つのステージをクリア</p>
                 </button>
-                <button onClick={() => setGameMode('MULTI')} className="bg-slate-800/80 p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-72">
-                  <span className="text-6xl mb-4">🌐</span>
-                  <h3 className="text-2xl text-sky-400 font-bold">ローカル通信対戦</h3>
-                  <p className="text-slate-400 mt-2 text-sm text-center">2台のPCを直接繋いで<br/>サーバーなしで対戦する</p>
+                <button onClick={() => setGameMode('SOLO')} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
+                  <span className="text-5xl mb-3">👤</span>
+                  <h3 className="text-xl text-white font-bold">ソロプレイ</h3>
+                  <p className="text-slate-400 mt-2 text-xs text-center">AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
+                </button>
+                <button onClick={() => setGameMode('MULTI')} className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-64">
+                  <span className="text-5xl mb-3">🌐</span>
+                  <h3 className="text-xl text-sky-400 font-bold">ローカル通信対戦</h3>
+                  <p className="text-slate-400 mt-2 text-xs text-center">2台のPCを直接繋いで<br/>サーバーなしで対戦する</p>
                 </button>
               </div>
             ) : gameMode === 'SOLO' ? (
@@ -1610,7 +1619,7 @@
             </div>
             
             <div className="flex flex-col items-end gap-2">
-              {gameMode !== 'SOLO' && <div className="text-green-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-green-600/50 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>P2P CONNECTED</div>}
+              {gameMode === 'MULTI' && <div className="text-green-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-green-600/50 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>P2P CONNECTED</div>}
               <div className="flex items-center gap-4 bg-slate-800 border border-slate-600 px-5 py-2 rounded-full shadow-lg">
                 <div className="flex items-center gap-2 text-slate-300">
                   <span className="text-sky-400">📅</span> <span className="font-bold text-lg">{gameState.turn}日目 ({DAYS[currentDayIndex]})</span>
@@ -1629,6 +1638,16 @@
           </div>
 
           <div className="relative border-y border-slate-700 shadow-2xl rounded-xl overflow-hidden mt-8" style={{ width: MAP_W, height: MAP_H, backgroundImage: gameState ? BACKGROUNDS[gameState.weather] : BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+            
+            {gameMode === 'TUTORIAL' && phase === 'INPUT' && (
+              <div className="absolute top-24 left-1/2 transform -translate-x-1/2 z-20 pointer-events-none w-full max-w-3xl">
+                <div className="bg-slate-800/95 border border-sky-500 text-sky-100 p-4 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.4)] pointer-events-auto text-center">
+                  <h3 className="text-lg font-bold text-yellow-400 mb-2">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage).title}</h3>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage).message}</p>
+                </div>
+              </div>
+            )}
+
             <canvas ref={canvasRef} width={MAP_W} height={MAP_H} onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} className={`absolute top-0 left-0 ${phase==='INPUT' ? 'cursor-crosshair' : ''}`} />
             
             {renderMenu()}
@@ -1660,13 +1679,36 @@
               </div>
             )}
 
+            {phase === 'TUTORIAL_CLEAR' && (
+              <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+                <h1 className="text-7xl font-black mb-6 text-green-400 drop-shadow-lg">STAGE CLEAR!</h1>
+                {tutorialStage < PLAYABLE_TUTORIALS.length ? (
+                  <button onClick={() => startPlayableTutorial(tutorialStage + 1)} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">
+                    次のステージへ ▶
+                  </button>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <p className="text-yellow-400 text-2xl font-bold mb-6">全てのチュートリアルをクリアしました！</p>
+                    <button onClick={() => { setPhase('SETUP'); setGameMode(null); }} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl transition-all shadow-xl">
+                      タイトルへ戻る
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {phase === 'GAME_OVER' && (
               <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
                 <h1 className="text-7xl font-black mb-6 drop-shadow-lg" style={{ color: gameState.winner ? COLORS.players[gameState.winner] : '#cbd5e1' }}>
                   {gameState.winner === myPlayerNum ? 'VICTORY' : gameState.winner ? `派閥 ${gameState.winner} の勝利` : 'DRAW'}
                 </h1>
                 {gameState.winner !== myPlayerNum && gameState.winner !== null && <p className="text-red-400 text-2xl font-bold mb-4 tracking-widest">地下帝国 陥落</p>}
-                <button onClick={() => window.location.reload()} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">タイトルへ戻る</button>
+                
+                {gameMode === 'TUTORIAL' ? (
+                   <button onClick={() => startPlayableTutorial(tutorialStage)} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">リトライ</button>
+                ) : (
+                   <button onClick={() => window.location.reload()} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">タイトルへ戻る</button>
+                )}
               </div>
             )}
           </div>
@@ -1675,6 +1717,9 @@
             <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-4 h-32 overflow-y-auto relative">
               <h3 className="text-slate-400 text-sm font-bold mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">🪙 行動予定 (1ショバにつき1行動)</div>
+                <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers.includes(myPlayerNum)} className="flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 px-3 py-1 rounded text-xs transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed">
+                  ✨ 参謀AIに相談
+                </button>
               </h3>
               {!gameState?.alivePlayers.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
                  <div className="text-red-400 text-sm">あなたの派閥は全滅しました。観戦モードです。</div>
