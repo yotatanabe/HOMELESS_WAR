@@ -85,13 +85,13 @@
         id: 1,
         title: "STAGE 1: 路上デビュー",
         message: "まずは隣の中立拠点（公園のベンチ）を占領してみよう。\n自分の拠点（駅の隅っこ）をクリックして【輸送】を選び、隣の拠点をクリックだ。\n送る量を決めたら右下の【行動確定】を押せ！",
+        allowedActions: ['move'],
         setup: () => ({
           nodes: [
             { id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
             { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'bench', level: 1, mode: 'normal' }
           ],
           edges: [{ s: 1, t: 2, isOneWay: false }],
-          allowedActions: ['move'],
           playerCount: 1,
         }),
         cpuLogic: () => [],
@@ -101,28 +101,28 @@
         id: 2,
         title: "STAGE 2: 縄張り争い",
         message: "右側に敵の派閥がうろついている。相手の拠点にカチコミをかけて奪い取れ！\n相手より多くの資源（エネルギー）を送り込めば勝てるぞ。",
+        allowedActions: ['move'],
         setup: () => ({
           nodes: [
             { id: 1, x: 250, y: 300, owner: 1, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
             { id: 2, x: 650, y: 300, owner: 2, energy: 20, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
           ],
           edges: [{ s: 1, t: 2, isOneWay: false }],
-          allowedActions: ['move'],
           playerCount: 2,
         }),
-        cpuLogic: () => [], // 動かない
+        cpuLogic: () => [], 
         checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1 || !state.alivePlayers.includes(2)
       },
       {
         id: 3,
         title: "STAGE 3: 地盤固め",
         message: "資源が30以上溜まると【設備強化】ができる。\nレベルを上げると最大備蓄量と毎ターンの回復量が増えるぞ。\nターンを進めて資源を貯め、自分の拠点をLv2（トタン屋根）にしてみよう。",
+        allowedActions: ['upgrade', 'move'],
         setup: () => ({
           nodes: [
             { id: 1, x: 450, y: 300, owner: 1, energy: 10, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
           ],
           edges: [],
-          allowedActions: ['upgrade', 'move'],
           playerCount: 1,
         }),
         cpuLogic: () => [],
@@ -132,13 +132,13 @@
         id: 4,
         title: "STAGE 4: 鉄壁の防衛",
         message: "敵の大群が毎ターン攻めてくる！\n【カット(✂️)】を使って道を1ターン封鎖し、相手の攻撃をやり過ごせ。\nコストは10かかるが、防衛の要だ。3ターン耐え抜くか、敵を倒せばクリアだ。",
+        allowedActions: ['move', 'upgrade', 'cut'],
         setup: () => ({
           nodes: [
             { id: 1, x: 250, y: 300, owner: 1, energy: 40, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
             { id: 2, x: 650, y: 300, owner: 2, energy: 100, maxEnergy: 200, generation: 15, type: 'base', shobaType: 'station', level: 1, mode: 'normal' }
           ],
           edges: [{ s: 1, t: 2, isOneWay: false }],
-          allowedActions: ['move', 'upgrade', 'cut'],
           playerCount: 2,
         }),
         cpuLogic: (state) => {
@@ -155,6 +155,7 @@
         id: 5,
         title: "STAGE 5: 出稼ぎとアイテム",
         message: "【遠隔切替(📡)】をすると、回復が止まる代わりに2マス先までカチコミできる。ただし輸送ロス（半減）があるぞ。\n上の謎の段ボールを壊して「攻撃力倍増」アイテムを取り、遠くにいる敵を倒せ！",
+        allowedActions: ['move', 'upgrade', 'cut', 'toggle_mode', 'use_chip'],
         setup: () => ({
           nodes: [
             { id: 1, x: 150, y: 300, owner: 1, energy: 80, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' },
@@ -167,10 +168,9 @@
             { s: 2, t: 3, isOneWay: false },
             { s: 2, t: 4, isOneWay: false }
           ],
-          allowedActions: ['move', 'upgrade', 'cut', 'toggle_mode', 'use_chip'],
           playerCount: 2,
         }),
-        cpuLogic: () => [], // 動かない
+        cpuLogic: () => [], 
         checkWin: (state) => state.nodes.find(n => n.id === 3)?.owner === 1 || !state.alivePlayers.includes(2)
       }
     ];
@@ -658,7 +658,7 @@
       const [loadedImages, setLoadedImages] = useState({});
       const [phase, setPhase] = useState('SETUP'); 
       const [tutorialPage, setTutorialPage] = useState(0); 
-      const [tutorialStage, setTutorialStage] = useState(1); // 現在のプレイアブルチュートリアルのステージ
+      const [tutorialStage, setTutorialStage] = useState(1); 
 
       const [gameState, setGameState] = useState(null);
       const [playerCommands, setPlayerCommands] = useState([]); 
@@ -827,7 +827,7 @@
               const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStageRef.current);
               if (!finalState.alivePlayers.includes(1)) {
                  setPhase('GAME_OVER'); // 敗北
-              } else if (stageDef.checkWin(finalState)) {
+              } else if (stageDef && stageDef.checkWin(finalState)) {
                  setPhase('TUTORIAL_CLEAR'); // クリア
               } else {
                  setPhase('INPUT');
@@ -860,6 +860,7 @@
         setMyPlayerNum(1);
 
         const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === stageId);
+        if (!stageDef) return;
         const setupData = stageDef.setup();
         const alivePlayers = Array.from({length: setupData.playerCount}, (_, i) => i + 1);
         const chips = {}; for (let i=1; i<=setupData.playerCount; i++) chips[i] = [];
@@ -928,7 +929,7 @@
 
       // --- インタラクション ---
       const handleCanvasClick = (e) => {
-        if (phase !== 'INPUT' || !gameState.alivePlayers.includes(myPlayerNum)) return;
+        if (phase !== 'INPUT' || !gameState?.alivePlayers?.includes(myPlayerNum)) return;
         const rect = canvasRef.current.getBoundingClientRect();
         const x = e.clientX - rect.left; const y = e.clientY - rect.top;
         const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
@@ -1015,6 +1016,7 @@
 
         if (gameMode === 'TUTORIAL') {
           const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStage);
+          if (!stageDef) return;
           const cpuCmds = stageDef.cpuLogic(gameState);
           const allCmds = [...playerCommands, ...cpuCmds];
           const { nextState, animData } = simulateTurn(gameState, allCmds);
@@ -1288,11 +1290,14 @@
         let allowedActions = ['move', 'toggle_mode', 'upgrade', 'cut'];
         if (gameMode === 'TUTORIAL') {
           const stageDef = PLAYABLE_TUTORIALS.find(s => s.id === tutorialStage);
-          if (stageDef) allowedActions = stageDef.allowedActions;
+          if (stageDef && stageDef.allowedActions) {
+            allowedActions = stageDef.allowedActions;
+          }
         }
+        const safeActions = allowedActions || [];
 
         const existingCmdType = playerCommands.find(c => c.nodeId === node.id)?.type || null;
-        const isMoveAllowed = (!existingCmdType || existingCmdType === 'move') && allowedActions.includes('move');
+        const isMoveAllowed = (!existingCmdType || existingCmdType === 'move') && safeActions.includes('move');
         const isOthersAllowed = !existingCmdType;
 
         const moveAssigned = playerCommands.filter(c => c.nodeId === node.id && c.type === 'move').reduce((s, c) => s + c.amount, 0);
@@ -1311,28 +1316,28 @@
                 } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
               }}
               disabled={!isMoveAllowed || availableEnergy <= 0}
-              className={`flex-col items-center justify-center w-16 h-16 rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!allowedActions.includes('move') ? 'hidden' : 'flex'}`}
+              className={`flex-col items-center justify-center w-16 h-16 rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!safeActions.includes('move') ? 'hidden' : 'flex'}`}
             >
               <span className="text-xl">➡️</span>
               <span className="text-[10px] mt-1 text-center leading-tight">輸送<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
             </button>
             <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
-              disabled={!isOthersAllowed || !allowedActions.includes('toggle_mode')} 
-              className={`flex-col items-center justify-center w-16 h-16 rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!allowedActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
+              disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
+              className={`flex-col items-center justify-center w-16 h-16 rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
             >
               <span className="text-xl">📡</span>
               {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">採掘再開<br/>(通常モード)</span> : <span className="text-[10px] mt-1 text-center leading-tight">遠隔切替<br/>(採掘停止)</span>}
             </button>
             <button onClick={() => { if (node.energy >= 30 && node.level < 3) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
-              disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3 || !allowedActions.includes('upgrade')} 
-              className={`flex-col items-center justify-center w-16 h-16 rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!allowedActions.includes('upgrade') ? 'hidden' : 'flex'}`}
+              disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3 || !safeActions.includes('upgrade')} 
+              className={`flex-col items-center justify-center w-16 h-16 rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('upgrade') ? 'hidden' : 'flex'}`}
             >
               <span className="text-xl">🔨</span>
               <span className="text-[10px] mt-1 text-center leading-tight">設備強化<br/>(-30缶)</span>
             </button>
             <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
-              disabled={!isOthersAllowed || node.energy < 10 || !allowedActions.includes('cut')} 
-              className={`flex-col items-center justify-center w-16 h-16 rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!allowedActions.includes('cut') ? 'hidden' : 'flex'}`}
+              disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
+              className={`flex-col items-center justify-center w-16 h-16 rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('cut') ? 'hidden' : 'flex'}`}
             >
               <span className="text-xl">✂️</span>
               <span className="text-[10px] mt-1 text-center leading-tight">カット<br/>(-10缶)</span>
@@ -1613,7 +1618,7 @@
             <div className="flex flex-col gap-2 pointer-events-auto">
               <div className="flex gap-3">
                 {Array.from({length: gameState.playerCount}).map((_, i) => {
-                  const p = i + 1; const isAlive = gameState.alivePlayers.includes(p);
+                  const p = i + 1; const isAlive = gameState.alivePlayers?.includes(p) ?? false;
                   return (
                     <div key={p} className={`px-4 py-2 rounded-lg flex items-center gap-2 border transition-all ${isAlive ? 'opacity-100' : 'opacity-30 grayscale'}`} style={{ borderColor: COLORS.players[p], backgroundColor: `${COLORS.players[p]}33` }}>
                       <span style={{fontSize: '18px'}}>{p === myPlayerNum ? '🛡️' : '👥'}</span>
@@ -1622,7 +1627,7 @@
                   );
                 })}
               </div>
-              {(phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') && gameState.alivePlayers.includes(myPlayerNum) && gameState.chips[myPlayerNum].length > 0 && (
+              {(phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') && gameState.alivePlayers?.includes(myPlayerNum) && gameState.chips[myPlayerNum]?.length > 0 && (
                 <div className="flex gap-2">
                   {gameState.chips[myPlayerNum].map((chipId, idx) => {
                     const isUsed = playerCommands.some(c => c.type === 'use_chip' && c.chipIdx === idx);
@@ -1675,8 +1680,8 @@
             {gameMode === 'TUTORIAL' && phase === 'INPUT' && (
               <div className="absolute top-24 left-1/2 transform -translate-x-1/2 z-20 pointer-events-none w-full max-w-3xl">
                 <div className="bg-slate-800/95 border border-sky-500 text-sky-100 p-4 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.4)] pointer-events-auto text-center">
-                  <h3 className="text-lg font-bold text-yellow-400 mb-2">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage).title}</h3>
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage).message}</p>
+                  <h3 className="text-lg font-bold text-yellow-400 mb-2">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.title}</h3>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{PLAYABLE_TUTORIALS.find(s=>s.id === tutorialStage)?.message}</p>
                 </div>
               </div>
             )}
@@ -1700,7 +1705,7 @@
                 <span className="text-6xl animate-spin text-sky-400 mb-6 inline-block">⏳</span>
                 <h2 className="text-3xl font-black text-white tracking-widest drop-shadow-lg mb-8">他の派閥の行動を待機中...</h2>
                 <div className="flex gap-4">
-                   {Object.values(gameData?.players || {}).filter(p => gameState.alivePlayers.includes(p)).map(p => {
+                   {Object.values(gameData?.players || {}).filter(p => gameState.alivePlayers?.includes(p)).map(p => {
                      const isReady = gameData?.turnReady?.[p];
                      return (
                        <div key={p} className={`px-6 py-3 rounded-lg border flex flex-col items-center gap-2 shadow-lg transition-colors ${isReady ? 'bg-sky-600/80 border-sky-400 text-white' : 'bg-slate-800/80 border-slate-600 text-slate-400'}`}>
@@ -1750,11 +1755,11 @@
             <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-4 h-32 overflow-y-auto relative">
               <h3 className="text-slate-400 text-sm font-bold mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">🪙 行動予定 (1ショバにつき1行動)</div>
-                <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers.includes(myPlayerNum)} className="flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 px-3 py-1 rounded text-xs transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed">
+                <button onClick={handleAiAdvice} disabled={gameMode === 'TUTORIAL' || (phase !== 'INPUT' && phase !== 'WAITING_FOR_OTHERS') || isAiLoading || !gameState?.alivePlayers?.includes(myPlayerNum)} className="flex items-center gap-1 bg-yellow-600/30 hover:bg-yellow-600/50 text-yellow-300 px-3 py-1 rounded text-xs transition-colors border border-yellow-500/50 disabled:opacity-50 disabled:cursor-not-allowed">
                   ✨ 参謀AIに相談
                 </button>
               </h3>
-              {!gameState?.alivePlayers.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
+              {!gameState?.alivePlayers?.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
                  <div className="text-red-400 text-sm">あなたの派閥は全滅しました。観戦モードです。</div>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -1784,7 +1789,7 @@
               )}
             </div>
             <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className="w-64 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-black text-xl rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg">
-              <span className="text-2xl">▶️</span> {gameState?.alivePlayers.includes(myPlayerNum) ? '行動確定' : '待機中'}
+              <span className="text-2xl">▶️</span> {gameState?.alivePlayers?.includes(myPlayerNum) ? '行動確定' : '待機中'}
             </button>
           </div>
         </div>
