@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (ローカル対戦版)</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-900 overflow-hidden text-white">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const MAP_W = 900;
+    const MAP_H = 600;
+
+    const COLORS = {
+      bg: '#0f172a', edge: '#cbd5e1', neutral: '#64748b', dump: '#84cc16',     
+      players: ['#64748b', '#0ea5e9', '#ef4444', '#22c55e', '#eab308'],
+      playerGlows: ['rgba(0,0,0,0)', 'rgba(14, 165, 233, 0.5)', 'rgba(239, 68, 68, 0.5)', 'rgba(34, 197, 94, 0.5)', 'rgba(234, 179, 8, 0.5)'],
+      highlight: '#facc15', long_range: '#c084fc'
+    };
+
+    const BACKGROUNDS = {
+      sunny: 'url("https://images.unsplash.com/photo-1496350369888-297ebcc02052?auto=format&fit=crop&q=80&w=900&h=600")',
+      typhoon: 'url("https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&q=80&w=900&h=600")',
+      cold: 'url("https://images.unsplash.com/photo-1478265409131-1f65c88f965c?auto=format&fit=crop&q=80&w=900&h=600")'
+    };
+
+    const ASSETS = {
+      station: './assets/station.png',
+      bench: './assets/bench.png',
+      underpass: './assets/underpass.png',
+      ruin: './assets/ruin.png',
+      dump: './assets/dump.png',
+      item: './assets/item_box.png',
+      chip_emp: './assets/chip_emp.png',
+      chip_stealth: './assets/chip_stealth.png',
+      chip_boost: './assets/chip_boost.png',
+      chip_mine: './assets/chip_mine.png',
+      chip_atk: './assets/chip_atk.png',
+      chip_sabotage: './assets/chip_sabotage.png',
+      weather_sunny: './assets/weather_sunny.png',
+      weather_typhoon: './assets/weather_typhoon.png',
+      weather_cold: './assets/weather_cold.png',
+    };
+
+    const CHIP_TYPES = {
+      EMP: { id: 'EMP', name: 'カラスの死骸', desc: '敵のカットを無効化', imgKey: 'chip_emp', icon: '🦅' },
+      STEALTH: { id: 'STEALTH', name: '段ボール擬態', desc: '移動ラインを隠す', imgKey: 'chip_stealth', icon: '🥷' },
+      BOOST: { id: 'BOOST', name: '台車ダッシュ', desc: '1T遠隔ロス0', imgKey: 'chip_boost', icon: '🛒' },
+      MINE_BOOST: { id: 'MINE_BOOST', name: '炊き出しの噂', desc: '1T選択ノードの採掘量x2', imgKey: 'chip_mine', icon: '🍲' },
+      ATK_BOOST: { id: 'ATK_BOOST', name: '拾った酒', desc: '1T選択ノードの輸送量x2', imgKey: 'chip_atk', icon: '🍶' },
+      SABOTAGE: { id: 'SABOTAGE', name: 'サツの巡回', desc: '1T敵ノードの採掘停止', imgKey: 'chip_sabotage', icon: '🚓' }
+    };
+
+    const SHOBA_INFO = {
+      station: { name: '駅の隅っこ', radius: 35, imgKey: 'station' },
+      bench: { name: '公園のベンチ', radius: 20, imgKey: 'bench' },
+      underpass: { name: '高架下', radius: 28, imgKey: 'underpass' },
+      ruin: { name: '廃ビル', radius: 32, imgKey: 'ruin' },
+      dump: { name: 'ゴミ捨て場', radius: 32, imgKey: 'dump' },
+    };
+
+    const SHOBA_EMOJI = { station: '🚉', bench: '🪑', underpass: '🌉', ruin: '🏚️', dump: '🗑️' };
+    const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
+
+    const generateWeather = () => {
+      const r = Math.random();
+      if (r < 0.2) return 'typhoon';
+      if (r < 0.4) return 'cold';
+      return 'sunny';
+    };
+
+    const getWeatherName = (weather) => {
+      if (weather === 'typhoon') return '台風 (遠隔ロス増大)';
+      if (weather === 'cold') return '大寒波 (Lv1拠点ダメージ)';
+      return '晴れ';
+    };
+
+    const renderWeatherIcon = (weather, sizeClass='w-6 h-6', imagesObj={}) => {
+      const key = `weather_${weather}`;
+      if (imagesObj[key]) {
+        return <img src={imagesObj[key].src} alt={weather} className={`${sizeClass} object-contain inline-block`} />;
+      }
+      if (weather === 'typhoon') return <span className="text-yellow-400">⛈️</span>;
+      if (weather === 'cold') return <span className="text-cyan-300">❄️</span>;
+      return <span className="text-orange-400">☀️</span>;
+    };
+
+    const intersects = (a, b, c, d) => {
+      const ccw = (p1, p2, p3) => (p3.y - p1.y) * (p2.x - p1.x) > (p2.y - p1.y) * (p3.x - p1.x);
+      if (a.x === c.x && a.y === c.y) return false;
+      if (a.x === d.x && a.y === d.y) return false;
+      if (b.x === c.x && b.y === c.y) return false;
+      if (b.x === d.x && b.y === d.y) return false;
+      return ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
+    };
+
+    const getDistance = (n1, n2) => Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
+
+    const canMove = (id1, id2, edges, cutEdges = []) => {
+      return edges.some(e => {
+        const isCut = cutEdges.some(ce => (ce.s === e.s && ce.t === e.t) || (ce.s === e.t && ce.t === e.s));
+        if (isCut) return false;
+        if (e.isOneWay) return e.s === id1 && e.t === id2;
+        return (e.s === id1 && e.t === id2) || (e.s === id2 && e.t === id1);
+      });
+    };
+
+    const getHopDistance = (id1, id2, edges, cutEdges = []) => {
+      if (id1 === id2) return 0;
+      if (canMove(id1, id2, edges, cutEdges)) return 1;
+      const neighbors = edges.map(e => {
+        if (e.s === id1 && !e.isOneWay) return e.t;
+        if (e.s === id1 && e.isOneWay) return e.t;
+        if (e.t === id1 && !e.isOneWay) return e.s;
+        return null;
+      }).filter(id => id !== null && canMove(id1, id, edges, cutEdges));
+      
+      for (const n of neighbors) {
+        if (canMove(n, id2, edges, cutEdges)) return 2;
+      }
+      return Infinity;
+    };
+
+    const getTargetableNodes = (startId, nodes, edges, maxHops) => {
+      return nodes.filter(n => n.id !== startId && getHopDistance(startId, n.id, edges) <= maxHops);
+    };
+
+    const getVisibleNodes = (playerId, nodes, edges) => {
+      const visible = new Set();
+      nodes.forEach(n => {
+        if (n.owner === playerId) {
+          visible.add(n.id);
+          const neighbors1 = new Set();
+          edges.forEach(e => {
+            if (e.s === n.id) neighbors1.add(e.t);
+            if (e.t === n.id) neighbors1.add(e.s);
+          });
+          neighbors1.forEach(neighborId => visible.add(neighborId));
+
+          if (n.mode === 'long_range') {
+            neighbors1.forEach(neighborId => {
+              edges.forEach(e => {
+                if (e.s === neighborId) visible.add(e.t);
+                if (e.t === neighborId) visible.add(e.s);
+              });
+            });
+          }
+        }
+      });
+      return visible;
+    };
+
+    const getLossRate = (level, weather) => {
+      let rate = 0;
+      if (level === 1) rate = 0.5; else if (level === 2) rate = 0.3; else if (level === 3) rate = 0.1; 
+      if (weather === 'typhoon') rate = Math.min(0.9, rate + 0.4); 
+      return rate;
+    };
+
+    const getLevelName = (level) => {
+      if (level === 1) return 'ブルーシート'; if (level === 2) return 'トタン屋根'; if (level === 3) return 'プレハブ'; return '';
+    };
+
+    const spawnItem = (mapData) => {
+      const { nodes, edges } = mapData;
+      let x, y, valid = false, attempts = 0;
+      while (!valid && attempts < 100) {
+        x = 100 + Math.random() * 700; y = 100 + Math.random() * 400;
+        valid = nodes.every(n => Math.sqrt(Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2)) > 70);
+        attempts++;
+      }
+      if (!valid) return;
+      const newId = Math.max(...nodes.map(n => n.id)) + 1;
+      const itemType = Object.keys(CHIP_TYPES)[Math.floor(Math.random() * Object.keys(CHIP_TYPES).length)];
+      const newItem = { id: newId, x, y, owner: 0, energy: 5, maxEnergy: 5, generation: 0, type: 'item', level: 1, mode: 'normal', item: itemType };
+      nodes.push(newItem);
+      const potentialEdges = nodes.filter(n => n.id !== newId)
+        .map(n => ({ t: n.id, dist: Math.sqrt(Math.pow(newItem.x - n.x, 2) + Math.pow(newItem.y - n.y, 2)), n }))
+        .filter(e => e.dist < 250).sort((a, b) => a.dist - b.dist);
+      let connections = 0;
+      for (const edge of potentialEdges) {
+        if (connections >= 2) break; 
+        let hasIntersection = false;
+        for (const e of edges) {
+          const e_n1 = nodes.find(n => n.id === e.s); const e_n2 = nodes.find(n => n.id === e.t);
+          if (e_n1 && e_n2 && intersects(newItem, edge.n, e_n1, e_n2)) { hasIntersection = true; break; }
+        }
+        if (!hasIntersection) {
+          edges.push({ s: edge.t, t: newItem.id, isOneWay: Math.random() < 0.4 }); connections++;
+        }
+      }
+    };
+
+    const generateMap = (playerCount) => {
+      const nodes = [], bases = [];
+      if (playerCount === 2) bases.push({ x: 150, y: 300 }, { x: 750, y: 300 });
+      else if (playerCount === 3) bases.push({ x: 450, y: 100 }, { x: 200, y: 450 }, { x: 700, y: 450 });
+      else bases.push({ x: 150, y: 150 }, { x: 750, y: 150 }, { x: 150, y: 450 }, { x: 750, y: 450 });
+
+      for (let i = 1; i <= playerCount; i++) {
+        nodes.push({ id: i, x: bases[i-1].x, y: bases[i-1].y, owner: i, energy: 100, maxEnergy: 200, generation: 10, type: 'base', shobaType: 'station', level: 1, mode: 'normal' });
+      }
+
+      let idCounter = 5; 
+      for (let i = 0; i < 12 + (playerCount * 2); i++) {
+        let x, y, valid = false, attempts = 0;
+        while (!valid && attempts < 200) {
+          x = 100 + Math.random() * 700; y = 100 + Math.random() * 400;
+          valid = nodes.every(n => Math.sqrt(Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2)) > 75);
+          attempts++;
+        }
+        const isDump = i < 2; 
+        let shobaType = 'bench', energy = 0, maxEnergy = 0, generation = 0;
+        if (isDump) { shobaType = 'dump'; energy = 10; maxEnergy = 500; generation = 0; } 
+        else {
+          const rand = Math.random();
+          if (rand < 0.6) { shobaType = 'bench'; energy = Math.floor(Math.random() * 11) + 10; maxEnergy = 30; generation = 3; } 
+          else if (rand < 0.9) { shobaType = 'underpass'; energy = Math.floor(Math.random() * 16) + 20; maxEnergy = 60; generation = 6; } 
+          else { shobaType = 'ruin'; energy = Math.floor(Math.random() * 21) + 30; maxEnergy = 100; generation = 10; }
+        }
+        nodes.push({ id: idCounter++, x, y, owner: 0, energy, maxEnergy, generation, type: isDump ? 'dump' : 'normal', shobaType, level: 1, mode: 'normal' });
+      }
+
+      const edges = [], potentialEdges = [];
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          potentialEdges.push({ s: nodes[i].id, t: nodes[j].id, dist: Math.sqrt(Math.pow(nodes[i].x - nodes[j].x, 2) + Math.pow(nodes[i].y - nodes[j].y, 2)), n1: nodes[i], n2: nodes[j] });
+        }
+      }
+      potentialEdges.sort((a, b) => a.dist - b.dist);
+      for (const edge of potentialEdges) {
+        if (edge.dist > 350) continue; 
+        if (edge.dist > 150 && Math.random() < 0.4) continue;
+        const n1Edges = edges.filter(e => e.s === edge.n1.id || e.t === edge.n1.id).length;
+        const n2Edges = edges.filter(e => e.s === edge.n2.id || e.t === edge.n2.id).length;
+        if (n1Edges >= 4 || n2Edges >= 4) continue;
+        let hasIntersection = false;
+        for (const e of edges) {
+          const e_n1 = nodes.find(n => n.id === e.s); const e_n2 = nodes.find(n => n.id === e.t);
+          if (e_n1 && e_n2 && intersects(edge.n1, edge.n2, e_n1, e_n2)) { hasIntersection = true; break; }
+        }
+        if (!hasIntersection) edges.push({ s: edge.s, t: edge.t, isOneWay: Math.random() < 0.25 });
+      }
+
+      const visited = new Set();
+      const dfs = (id) => {
+        if (visited.has(id)) return; visited.add(id);
+        edges.forEach(e => { if (e.s === id) dfs(e.t); if (e.t === id) dfs(e.s); });
+      };
+      dfs(1); 
+      if (visited.size < nodes.length) return generateMap(playerCount); 
+      const mapData = { nodes, edges };
+      spawnItem(mapData);
+      return mapData;
+    };
+
+    const generateCpuCommands = (state, cpuPlayers) => {
+      let cmds = [];
+      for (const p of cpuPlayers) {
+        if (!state.alivePlayers.includes(p)) continue;
+        let usedChipsCount = 0; const pChips = [...state.chips[p]];
+        const tryUseChip = (chipType, targetId, playerId) => {
+          if (usedChipsCount >= 2) return false;
+          const idx = pChips.indexOf(chipType);
+          if (idx !== -1 && !cmds.some(c => c.type === 'use_chip' && c.chip === chipType && c.targetId === targetId)) {
+            cmds.push({ type: 'use_chip', chip: chipType, targetId, playerId, chipIdx: idx });
+            pChips[idx] = null; usedChipsCount++; return true;
+          }
+          return false;
+        };
+        const myNodes = state.nodes.filter(n => n.owner === p);
+        if (pChips.includes('MINE_BOOST')) {
+          const bestMineNode = myNodes.filter(n => n.mode === 'normal').sort((a, b) => b.generation - a.generation)[0];
+          if (bestMineNode) tryUseChip('MINE_BOOST', bestMineNode.id, p);
+        }
+        if (pChips.includes('SABOTAGE')) {
+          const bestSabotageNode = state.nodes.filter(n => n.owner !== p && n.owner !== 0 && n.type !== 'item' && n.mode === 'normal').sort((a, b) => b.generation - a.generation)[0];
+          if (bestSabotageNode) tryUseChip('SABOTAGE', bestSabotageNode.id, p);
+        }
+        myNodes.forEach(node => {
+          if (node.energy < 10) return; 
+          const adjNodes = getTargetableNodes(node.id, state.nodes, state.edges, 1);
+          const dist2Nodes = getTargetableNodes(node.id, state.nodes, state.edges, 2);
+          const threats = adjNodes.filter(n => n.owner !== p && n.owner !== 0 && n.type !== 'item' && n.energy > node.energy + 20);
+          if (threats.length > 0 && node.energy >= 10 && Math.random() < 0.7) {
+            threats.sort((a, b) => b.energy - a.energy);
+            cmds.push({ type: 'cut', nodeId: node.id, targetId: threats[0].id, playerId: p });
+            if (pChips.includes('EMP')) tryUseChip('EMP', threats[0].id, p);
+            return; 
+          }
+          if (node.level < 3 && node.energy >= 60 && threats.length === 0) {
+            cmds.push({ type: 'upgrade', nodeId: node.id, playerId: p }); return; 
+          }
+          const hasAdjTarget = adjNodes.some(n => n.owner !== p);
+          const hasDist2Target = dist2Nodes.some(n => n.owner !== p && !adjNodes.find(an => an.id === n.id));
+          if (node.mode === 'normal') {
+            if (!hasAdjTarget && hasDist2Target && Math.random() < 0.8) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; }
+          } else if (node.mode === 'long_range') {
+            if (hasAdjTarget || !hasDist2Target) { cmds.push({ type: 'toggle_mode', nodeId: node.id, playerId: p }); return; }
+          }
+          if (node.energy < 20) return; 
+          const hops = node.mode === 'long_range' ? 2 : 1;
+          const targets = hops === 1 ? adjNodes : dist2Nodes;
+          const validTargets = targets.filter(n => n.owner !== p);
+          if (validTargets.length > 0) {
+            const scoredTargets = validTargets.map(t => {
+              let score = 0;
+              if (t.type === 'item') score += 1000; else if (t.type === 'dump') score += 900; 
+              else if (t.owner === 0) score += 500 - t.energy; else if (t.type === 'base') score += 800 - t.energy; else score += 300 - t.energy; 
+              const requiredEnergy = hops === 2 ? t.energy / (1 - getLossRate(node.level, state.weather)) : t.energy;
+              if (node.energy > requiredEnergy) score += 200; 
+              return { target: t, score };
+            });
+            scoredTargets.sort((a, b) => b.score - a.score);
+            const bestTarget = scoredTargets[0].target;
+            let amount = Math.floor(node.energy * 0.5);
+            let required = bestTarget.energy + 5;
+            if (hops === 2) required = Math.ceil(required / (1 - getLossRate(node.level, state.weather)));
+            if (node.energy > required && required > amount) amount = required;
+            if (pChips.includes('ATK_BOOST') && bestTarget.type !== 'item' && bestTarget.energy > amount) tryUseChip('ATK_BOOST', node.id, p);
+            let isStealth = false;
+            if (pChips.includes('STEALTH') && bestTarget.owner !== 0) if (tryUseChip('STEALTH', undefined, p)) isStealth = true;
+            cmds.push({ type: 'move', nodeId: node.id, targetId: bestTarget.id, amount, playerId: p, isStealth });
+          }
+        });
+        if (pChips.includes('BOOST')) {
+           const hasLongRangeAttack = cmds.some(c => c.type === 'move' && c.playerId === p && state.nodes.find(n=>n.id === c.nodeId)?.mode === 'long_range');
+           if (hasLongRangeAttack) tryUseChip('BOOST', undefined, p);
+        }
+      }
+      return cmds;
+    };
+
+    const simulateTurn = (state, allCommands) => {
+      let next = JSON.parse(JSON.stringify(state));
+      let animData = { prep: [], movements: [], combats: [], mines: [], captures: [], items: [], weatherDamages: [], trashBonuses: [] };
+
+      const activeBoosts = new Set(), activeEmps = new Set(), activeMineBoosts = new Set(), activeAtkBoosts = new Set(), activeSabotages = new Set();
+
+      allCommands.forEach(cmd => {
+        if (cmd.type === 'use_chip') {
+          const pChips = next.chips[cmd.playerId]; const idx = pChips.indexOf(cmd.chip);
+          if (idx !== -1) pChips.splice(idx, 1); 
+          if (cmd.chip === 'BOOST') activeBoosts.add(cmd.playerId);
+          if (cmd.chip === 'EMP') activeEmps.add(cmd.targetId); 
+          if (cmd.chip === 'MINE_BOOST') { activeMineBoosts.add(cmd.targetId); animData.prep.push({ type: 'mine_boost', nodeId: cmd.targetId }); }
+          if (cmd.chip === 'ATK_BOOST') { activeAtkBoosts.add(cmd.targetId); animData.prep.push({ type: 'atk_boost', nodeId: cmd.targetId }); }
+          if (cmd.chip === 'SABOTAGE') { activeSabotages.add(cmd.targetId); animData.prep.push({ type: 'sabotage', nodeId: cmd.targetId }); }
+        }
+      });
+
+      let cutEdges = [];
+      allCommands.forEach(cmd => {
+        const node = next.nodes.find(n => n.id === cmd.nodeId);
+        if (!node) return;
+        if (cmd.type === 'toggle_mode') { node.mode = node.mode === 'normal' ? 'long_range' : 'normal'; animData.prep.push({ type: 'toggle', nodeId: node.id, mode: node.mode }); } 
+        else if (cmd.type === 'upgrade' && node.level < 3 && node.energy >= 30) { node.energy -= 30; node.level += 1; node.maxEnergy += 50; node.generation += 5; animData.prep.push({ type: 'upgrade', nodeId: node.id }); } 
+        else if (cmd.type === 'cut' && node.energy >= 10) {
+          if (!activeEmps.has(node.id)) { node.energy -= 10; cutEdges.push({ s: cmd.nodeId, t: cmd.targetId }); animData.prep.push({ type: 'cut', s: cmd.nodeId, t: cmd.targetId, owner: cmd.playerId }); } 
+          else { animData.prep.push({ type: 'emp_block', nodeId: node.id }); }
+        }
+      });
+
+      const currentDayIndex = (state.turn - 1) % 7;
+      const isTrashDay = state.trashDays.includes(currentDayIndex);
+
+      next.nodes.forEach(node => {
+        if (state.weather === 'cold' && node.level === 1 && node.owner !== 0 && node.type !== 'item' && node.type !== 'dump') {
+           const dmg = Math.min(node.energy, 5);
+           if (dmg > 0) { node.energy -= dmg; animData.weatherDamages.push({ nodeId: node.id, amount: dmg }); }
+        }
+        if (node.owner !== 0 && node.mode === 'normal') {
+          if (!activeSabotages.has(node.id)) {
+            let gen = node.generation; if (activeMineBoosts.has(node.id)) gen *= 2;
+            const added = Math.min(node.maxEnergy - node.energy, gen);
+            node.energy += added; if (added > 0) animData.mines.push({ nodeId: node.id, amount: added });
+          }
+        }
+        if (isTrashDay && node.type === 'dump') {
+           const added = Math.min(node.maxEnergy - node.energy, 80);
+           node.energy += added; if (added > 0) animData.trashBonuses.push({ nodeId: node.id, amount: added });
+        }
+      });
+
+      let inflows = {}; next.nodes.forEach(n => { inflows[n.id] = {}; for(let i=1; i<=state.playerCount; i++) inflows[n.id][i] = 0; });
+      let moveRequests = {};
+      allCommands.forEach(cmd => { if (cmd.type === 'move') { if (!moveRequests[cmd.nodeId]) moveRequests[cmd.nodeId] = []; moveRequests[cmd.nodeId].push(cmd); } });
+
+      Object.keys(moveRequests).forEach(nodeId => {
+        const node = next.nodes.find(n => n.id === parseInt(nodeId));
+        if (!node) return;
+        const reqs = moveRequests[nodeId];
+        const totalReq = reqs.reduce((sum, r) => sum + r.amount, 0);
+        reqs.forEach(req => {
+          let sentAmount = req.amount; if (totalReq > node.energy) sentAmount = Math.floor(req.amount * (node.energy / totalReq));
+          node.energy -= sentAmount;
+          let baseReceived = sentAmount; if (activeAtkBoosts.has(req.nodeId)) baseReceived *= 2;
+          const hops = getHopDistance(node.id, req.targetId, next.edges, cutEdges);
+          let receivedAmount = 0;
+          if (hops === 1) { receivedAmount = baseReceived; } 
+          else if (hops === 2) { let lossRate = activeBoosts.has(req.playerId) ? 0 : getLossRate(node.level, state.weather); receivedAmount = Math.floor(baseReceived * (1 - lossRate)); }
+          if (receivedAmount > 0) { inflows[req.targetId][req.playerId] += receivedAmount; animData.movements.push({ source: req.nodeId, target: req.targetId, amount: receivedAmount, owner: req.playerId, hops }); }
+        });
+      });
+
+      next.nodes.forEach(node => {
+        const nodeInflows = inflows[node.id];
+        const forces = []; for(let i=1; i<=state.playerCount; i++) if(nodeInflows[i] > 0) forces.push({ p: i, f: nodeInflows[i] });
+        if(forces.length === 0) return;
+        forces.sort((a, b) => b.f - a.f);
+        let attacker = forces[0].p, topForce = forces[0].f, sumOthers = 0;
+        for(let i=1; i<forces.length; i++) sumOthers += forces[i].f;
+        let finalForce = topForce - sumOthers;
+        let clashAmount = forces.length > 1 ? sumOthers * 2 + 10 : 0;
+        if (forces.length === 1 && node.owner !== attacker && node.owner !== 0) clashAmount = topForce;
+
+        animData.combats.push({ nodeId: node.id, force: finalForce > 0 ? finalForce : 0, attacker: finalForce > 0 ? attacker : 0, clashAmount });
+
+        if (finalForce > 0) {
+          if (node.owner === attacker) { node.energy = Math.min(node.maxEnergy, node.energy + finalForce); } 
+          else {
+            node.energy -= finalForce;
+            if (node.energy <= 0 && node.type === 'item') { next.chips[attacker].push(node.item); animData.items.push({ x: node.x, y: node.y, item: node.item, owner: attacker }); node.isCollected = true; node.energy = 0; } 
+            else if (node.energy < 0) { node.owner = attacker; node.energy = Math.abs(node.energy); if (node.energy > node.maxEnergy) node.energy = node.maxEnergy; animData.captures.push({ nodeId: node.id, newOwner: attacker }); } 
+            else if (node.energy === 0) { node.owner = 0; node.mode = 'normal'; animData.captures.push({ nodeId: node.id, newOwner: 0 }); }
+          }
+        }
+      });
+
+      next.weather = state.forecast;
+      next.forecast = generateWeather();
+      if (next.turn % 3 === 0) spawnItem(next);
+
+      const nextAlivePlayers = [];
+      for(let p=1; p<=state.playerCount; p++) if (next.nodes.some(n => n.type === 'base' && n.id === p && n.owner === p)) nextAlivePlayers.push(p);
+
+      let winner = null, isGameOver = false;
+      if (!nextAlivePlayers.includes(1)) isGameOver = true; 
+      else if (nextAlivePlayers.length === 1 && nextAlivePlayers[0] === 1) { winner = 1; isGameOver = true; } 
+      else if (nextAlivePlayers.length === 0) isGameOver = true; 
+      else if (nextAlivePlayers.length === 1) { winner = nextAlivePlayers[0]; isGameOver = true; }
+
+      next.alivePlayers = nextAlivePlayers;
+      next.winner = winner; next.isGameOver = isGameOver; next.turn += 1;
+      return { nextState: next, animData };
+    };
+
+    // --- メインコンポーネント ---
+    function NodeWars() {
+      // ローカルP2P通信用のランダムなユーザーIDを生成
+      const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
+
+      const [gameMode, setGameMode] = useState(null); // 'SOLO' | 'HOST' | 'CLIENT'
+      const [roomId, setRoomId] = useState('');
+      const [joinInput, setJoinInput] = useState('');
+      const [errorMsg, setErrorMsg] = useState('');
+      
+      // gameData: ホストが管理し、全員に共有する部屋のメタ情報
+      const [gameData, setGameData] = useState(null);
+      const [myPlayerNum, setMyPlayerNum] = useState(1);
+
+      const [loadedImages, setLoadedImages] = useState({});
+      const [phase, setPhase] = useState('SETUP'); 
+      const [gameState, setGameState] = useState(null);
+      const [playerCommands, setPlayerCommands] = useState([]); 
+      const [uiState, setUiState] = useState({ mode: 'IDLE', nodeId: null, targetId: null, maxAmount: 0 }); 
+      const [hoveredNode, setHoveredNode] = useState(null);
+      const [amountSlider, setAmountSlider] = useState(0);
+      const [selectedChip, setSelectedChip] = useState(null);
+
+      const canvasRef = useRef(null);
+      const animRef = useRef({ active: false, progress: 0, data: null });
+      const bc = useRef(null); // BroadcastChannel
+
+      // 非同期イベント内で最新のStateを参照するためのRef
+      const stateRef = useRef(gameState);
+      const roomRef = useRef(roomId);
+      const phaseRef = useRef(phase);
+      const gameDataRef = useRef(gameData);
+      const gameModeRef = useRef(gameMode);
+
+      useEffect(() => { stateRef.current = gameState; }, [gameState]);
+      useEffect(() => { roomRef.current = roomId; }, [roomId]);
+      useEffect(() => { phaseRef.current = phase; }, [phase]);
+      useEffect(() => { gameDataRef.current = gameData; }, [gameData]);
+      useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
+
+      // 画像の事前ロード
+      useEffect(() => {
+        const loadImages = async () => {
+          const images = {};
+          const promises = Object.entries(ASSETS).map(([key, src]) => {
+            return new Promise((resolve) => {
+              const img = new Image();
+              img.src = src;
+              img.onload = () => { images[key] = img; resolve(); };
+              img.onerror = () => { resolve(); }; 
+            });
+          });
+          await Promise.all(promises);
+          setLoadedImages(images);
+        };
+        loadImages();
+      }, []);
+
+      // --- BroadcastChannel (ローカルP2P通信) の設定 ---
+      useEffect(() => {
+        const channel = new BroadcastChannel('homeless_wars_channel');
+        bc.current = channel;
+        
+        channel.onmessage = (e) => {
+          const data = e.data;
+          if (!data || data.roomId !== roomRef.current) return;
+
+          const gMode = gameModeRef.current;
+          const currentPhase = phaseRef.current;
+          const gData = gameDataRef.current;
+
+          // ▼ HOST側の処理
+          if (gMode === 'HOST') {
+            if (data.type === 'JOIN_REQ') {
+              if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
+                if (!gData.playerUids.includes(data.uid)) {
+                  const newNum = gData.playerUids.length + 1;
+                  const newGameData = {
+                    ...gData,
+                    players: { ...gData.players, [data.uid]: newNum },
+                    playerUids: [...gData.playerUids, data.uid]
+                  };
+                  setGameData(newGameData);
+                  channel.postMessage({ type: 'JOIN_ACK', roomId: roomRef.current, targetUid: data.uid, playerNum: newNum, gameData: newGameData });
+                  channel.postMessage({ type: 'ROOM_UPDATE', roomId: roomRef.current, gameData: newGameData });
+                }
+              }
+            } else if (data.type === 'CMD_SUBMIT') {
+              const newGameData = {
+                ...gData,
+                commands: { ...gData.commands, [data.playerNum]: data.commands },
+                turnReady: { ...gData.turnReady, [data.playerNum]: true }
+              };
+              setGameData(newGameData);
+              checkTurnResolve(newGameData, stateRef.current);
+            }
+          } 
+          // ▼ CLIENT側の処理
+          else if (gMode === 'CLIENT') {
+            if (data.type === 'JOIN_ACK' && data.targetUid === myUid) {
+              setMyPlayerNum(data.playerNum);
+              setGameData(data.gameData);
+              setPhase('WAITING_ROOM');
+            } else if (data.type === 'ROOM_UPDATE') {
+              setGameData(data.gameData);
+            } else if (data.type === 'GAME_START') {
+              setGameState(data.state);
+              setGameData(data.gameData);
+              setPhase('INPUT');
+            } else if (data.type === 'TURN_RESOLVE') {
+              startAnimation(stateRef.current, data.nextState, data.animData, data.allCommands, data.isGameOver);
+            }
+          }
+        };
+
+        return () => channel.close();
+      }, []);
+
+      // ホストが全員の入力が揃ったか確認し、シミュレーションを実行する
+      const checkTurnResolve = (currentGData, currentState) => {
+        if (phaseRef.current !== 'WAITING_FOR_OTHERS') return; // ホスト自身の入力が終わっているか
+        
+        const humanPlayers = Object.values(currentGData.players);
+        const aliveHumanPlayers = currentState.alivePlayers.filter(p => humanPlayers.includes(p));
+        
+        const allReady = aliveHumanPlayers.every(p => currentGData.turnReady[p]);
+        if (allReady && aliveHumanPlayers.length > 0) {
+          const allCmds = [];
+          aliveHumanPlayers.forEach(p => { if (currentGData.commands[p]) allCmds.push(...currentGData.commands[p]); });
+          const cpuCmds = generateCpuCommands(currentState, currentGData.cpuPlayers || []);
+          allCmds.push(...cpuCmds);
+          
+          const { nextState, animData } = simulateTurn(currentState, allCmds);
+          
+          const nextGameData = { ...currentGData, commands: {}, turnReady: {} };
+          setGameData(nextGameData);
+          
+          // クライアントへブロードキャスト
+          bc.current.postMessage({
+            type: 'TURN_RESOLVE',
+            roomId: roomRef.current,
+            nextState, animData, allCommands: allCmds, isGameOver: nextState.isGameOver
+          });
+          
+          startAnimation(currentState, nextState, animData, allCmds, nextState.isGameOver);
+        }
+      };
+
+      const startAnimation = (currentState, nextState, animData, allCommands, isGameOver) => {
+        setPhase('ANIMATING');
+        animRef.current = { active: true, progress: 0, data: animData };
+        const startTime = performance.now();
+        const duration = 7500; 
+        const animate = (time) => {
+          let p = Math.min((time - startTime) / duration, 1.0);
+          animRef.current.progress = p;
+          if (p < 1.0) { requestAnimationFrame(animate); } 
+          else {
+            animRef.current.active = false;
+            const cleanNodes = nextState.nodes.filter(n => !n.isCollected);
+            const cleanEdges = nextState.edges.filter(e => cleanNodes.some(n => n.id === e.s) && cleanNodes.some(n => n.id === e.t));
+            const finalState = { ...nextState, nodes: cleanNodes, edges: cleanEdges };
+            setGameState(finalState);
+            setPlayerCommands([]);
+            setPhase(isGameOver ? 'GAME_OVER' : 'INPUT');
+          }
+        };
+        requestAnimationFrame(animate);
+      };
+
+      // Canvas描画ループ
+      useEffect(() => {
+        let animationFrameId;
+        const render = (time) => {
+          const ctx = canvasRef.current?.getContext('2d');
+          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM') {
+            drawCanvas(ctx, gameState, playerCommands, [], uiState, hoveredNode, animRef.current, time, phase);
+          }
+          animationFrameId = requestAnimationFrame(render);
+        };
+        render(performance.now());
+        return () => cancelAnimationFrame(animationFrameId);
+      }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum]); 
+
+      // --- ソロプレイの開始 ---
+      const startSoloGame = (playerCount) => {
+        setGameMode('SOLO');
+        setMyPlayerNum(1);
+        const mapData = generateMap(playerCount);
+        const alivePlayers = Array.from({length: playerCount}, (_, i) => i + 1);
+        const chips = {}; for (let i=1; i<=playerCount; i++) chips[i] = [];
+        const trashDays = [];
+        while (trashDays.length < 2) {
+          const r = Math.floor(Math.random() * 7);
+          if (!trashDays.includes(r)) trashDays.push(r);
+        }
+        trashDays.sort((a, b) => a - b);
+        const initialState = {
+          ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(),
+          trashDays, playerCount, alivePlayers, winner: null, isGameOver: false, chips
+        };
+        setGameState(initialState);
+        setPlayerCommands([]);
+        setPhase('INPUT');
+      };
+
+      // --- ローカルマルチプレイのルーム操作 ---
+      const createRoom = (pCount) => {
+        setErrorMsg('');
+        const newRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
+        setRoomId(newRoomId);
+        setGameMode('HOST');
+        setMyPlayerNum(1);
+        const initialGameData = {
+          hostUid: myUid, status: 'WAITING', playerCount: pCount,
+          players: { [myUid]: 1 }, playerUids: [myUid], cpuPlayers: [],
+          commands: {}, turnReady: {}
+        };
+        setGameData(initialGameData);
+        setPhase('WAITING_ROOM');
+        // ブロードキャスト（参加者がリロードした時などに備えて）
+        bc.current.postMessage({ type: 'ROOM_UPDATE', roomId: newRoomId, gameData: initialGameData });
+      };
+
+      const joinRoom = (rid) => {
+        if (!rid) return;
+        setErrorMsg('');
+        const targetId = rid.toUpperCase();
+        setRoomId(targetId);
+        setGameMode('CLIENT');
+        bc.current.postMessage({ type: 'JOIN_REQ', roomId: targetId, uid: myUid });
+        // 1秒待ってJOIN_ACKが来なければエラー（ルームが存在しない）
+        setTimeout(() => {
+          if (phaseRef.current === 'SETUP') setErrorMsg('ルームが見つからないか満員です。');
+        }, 1000);
+      };
+
+      const startGame = () => {
+        if (gameMode !== 'HOST' || !gameData) return;
+        const mapData = generateMap(gameData.playerCount);
+        const alivePlayers = Array.from({length: gameData.playerCount}, (_, i) => i + 1);
+        const chips = {}; for (let i=1; i<=gameData.playerCount; i++) chips[i] = [];
+        const trashDays = [];
+        while (trashDays.length < 2) {
+          const r = Math.floor(Math.random() * 7);
+          if (!trashDays.includes(r)) trashDays.push(r);
+        }
+        trashDays.sort((a, b) => a - b);
+        const initialState = {
+          ...mapData, turn: 1, weather: 'sunny', forecast: generateWeather(),
+          trashDays, playerCount: gameData.playerCount, alivePlayers, winner: null, isGameOver: false, chips
+        };
+        const humanPlayerIds = Object.values(gameData.players);
+        const cpuPlayers = alivePlayers.filter(p => !humanPlayerIds.includes(p));
+
+        const newGameData = { ...gameData, cpuPlayers, status: 'PLAYING' };
+        setGameData(newGameData);
+        setGameState(initialState);
+        setPhase('INPUT');
+
+        bc.current.postMessage({
+          type: 'GAME_START',
+          roomId,
+          state: initialState,
+          gameData: newGameData
+        });
+      };
+
+      const handleCanvasClick = (e) => {
+        if (phase !== 'INPUT' || !gameState.alivePlayers.includes(myPlayerNum)) return;
+        const rect = canvasRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
+        const clickedNode = gameState.nodes.find(n => getDistance(n, {x, y}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+
+        if (selectedChip) {
+          const { id: chipId, idx: chipIdx } = selectedChip;
+          if (chipId === 'EMP' || chipId === 'SABOTAGE') {
+            if (clickedNode && clickedNode.owner !== myPlayerNum && clickedNode.type !== 'item' && clickedNode.type !== 'dump') {
+              if (playerCommands.some(c => c.type === 'use_chip' && c.chip === chipId && c.targetId === clickedNode.id)) { setSelectedChip(null); return; }
+              addCommand({ type: 'use_chip', chip: chipId, targetId: clickedNode.id, playerId: myPlayerNum, chipIdx }); setSelectedChip(null);
+            }
+            return;
+          }
+          if (chipId === 'MINE_BOOST' || chipId === 'ATK_BOOST') {
+            if (clickedNode && clickedNode.owner === myPlayerNum) {
+              if (playerCommands.some(c => c.type === 'use_chip' && c.chip === chipId && c.targetId === clickedNode.id)) { setSelectedChip(null); return; }
+              addCommand({ type: 'use_chip', chip: chipId, targetId: clickedNode.id, playerId: myPlayerNum, chipIdx }); setSelectedChip(null);
+            }
+            return;
+          }
+        }
+
+        if (uiState.mode === 'IDLE') {
+          if (clickedNode && clickedNode.owner === myPlayerNum) setUiState({ mode: 'MENU_OPEN', nodeId: clickedNode.id });
+        } else if (uiState.mode === 'MENU_OPEN') {
+          if (!clickedNode || clickedNode.id !== uiState.nodeId) setUiState({ mode: 'IDLE', nodeId: null });
+        } else if (uiState.mode === 'SELECTING_TARGET') {
+          const sourceNode = gameState.nodes.find(n => n.id === uiState.nodeId);
+          const maxHops = sourceNode.mode === 'long_range' ? 2 : 1;
+          const distHop = getHopDistance(uiState.nodeId, clickedNode?.id, gameState.edges);
+
+          if (clickedNode && distHop > 0 && distHop <= maxHops) {
+            if (uiState.actionType === 'move') {
+              const alreadyAssigned = playerCommands.filter(c => c.nodeId === uiState.nodeId && c.targetId !== clickedNode.id && c.type === 'move').reduce((sum, c) => sum + (c.amount || 0), 0);
+              const maxAmount = Math.max(0, sourceNode.energy - alreadyAssigned);
+              if (maxAmount > 0) {
+                setAmountSlider(Math.floor(maxAmount / 2) || 1);
+                setUiState({ ...uiState, mode: 'INPUT_AMOUNT', targetId: clickedNode.id, maxAmount });
+              } else setUiState({ mode: 'IDLE', nodeId: null, targetId: null });
+            } else if (uiState.actionType === 'cut' && distHop === 1 && clickedNode.type !== 'item' && clickedNode.type !== 'dump') {
+              addCommand({ type: 'cut', nodeId: uiState.nodeId, targetId: clickedNode.id, playerId: myPlayerNum });
+            }
+          } else setUiState({ mode: 'IDLE', nodeId: null, targetId: null });
+        }
+      };
+
+      const handleCanvasMouseMove = (e) => {
+        if (phase !== 'INPUT' || !gameState) return;
+        const rect = canvasRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
+        const hovered = gameState.nodes.find(n => getDistance(n, {x, y}) < (n.shobaType && SHOBA_INFO[n.shobaType] ? SHOBA_INFO[n.shobaType].radius : 35) && !n.isCollected && visibleSet.has(n.id));
+        setHoveredNode(hovered ? hovered.id : null);
+      };
+
+      const handleChipSelect = (chipId, idx) => {
+        const usedCount = playerCommands.filter(c => c.type === 'use_chip').length;
+        if (usedCount >= 2 && selectedChip?.idx !== idx) return; 
+        if (selectedChip?.idx === idx) { setSelectedChip(null); return; }
+        if (chipId === 'BOOST') {
+          if (playerCommands.some(c => c.type === 'use_chip' && c.chip === 'BOOST')) return;
+          addCommand({ type: 'use_chip', chip: 'BOOST', playerId: myPlayerNum, chipIdx: idx }); return;
+        }
+        setSelectedChip({ id: chipId, idx }); setUiState({ mode: 'IDLE', nodeId: null, targetId: null });
+      };
+
+      const addCommand = (cmd) => {
+        setPlayerCommands(prev => {
+          if (cmd.type === 'use_chip') return [...prev, cmd]; 
+          let nextCmds = prev.filter(c => c.nodeId !== cmd.nodeId || c.type === cmd.type);
+          if (cmd.type === 'move') nextCmds = nextCmds.filter(c => !(c.type === 'move' && c.nodeId === cmd.nodeId && c.targetId === cmd.targetId));
+          else nextCmds = nextCmds.filter(c => c.nodeId !== cmd.nodeId);
+          return [...nextCmds, cmd];
+        });
+        setUiState({ mode: 'IDLE', nodeId: null, targetId: null });
+      };
+      const removeCommand = (cmdToRemove) => { setPlayerCommands(prev => prev.filter(c => c !== cmdToRemove)); };
+
+      const handleLockIn = () => {
+        if (phase !== 'INPUT') return;
+        setUiState({ mode: 'IDLE', nodeId: null, targetId: null }); setSelectedChip(null);
+
+        if (gameMode === 'SOLO') {
+          const cpuPlayers = gameState.alivePlayers.filter(p => p !== 1);
+          const cpuCmds = generateCpuCommands(gameState, cpuPlayers);
+          const allCmds = [...playerCommands, ...cpuCmds];
+          const { nextState, animData } = simulateTurn(gameState, allCmds);
+          startAnimation(gameState, nextState, animData, allCmds, nextState.isGameOver);
+        } else if (gameMode === 'HOST') {
+          const newGameData = {
+            ...gameData,
+            commands: { ...gameData.commands, [myPlayerNum]: playerCommands },
+            turnReady: { ...gameData.turnReady, [myPlayerNum]: true }
+          };
+          setGameData(newGameData);
+          setPhase('WAITING_FOR_OTHERS');
+          checkTurnResolve(newGameData, gameState);
+        } else if (gameMode === 'CLIENT') {
+          bc.current.postMessage({
+            type: 'CMD_SUBMIT', roomId, uid: myUid, playerNum: myPlayerNum, commands: playerCommands
+          });
+          setPhase('WAITING_FOR_OTHERS');
+        }
+      };
+
+      const calculatePrediction = () => {
+        let predicted = JSON.parse(JSON.stringify(gameState.nodes));
+        let inflows = {}; predicted.forEach(n => inflows[n.id] = 0);
+        const isBoostActive = playerCommands.some(c => c.type === 'use_chip' && c.chip === 'BOOST');
+        const activeAtkBoosts = new Set(playerCommands.filter(c => c.type === 'use_chip' && c.chip === 'ATK_BOOST').map(c => c.targetId));
+        playerCommands.forEach(cmd => {
+          const node = predicted.find(n => n.id === cmd.nodeId); if (!node) return;
+          if (cmd.type === 'move') {
+            node.energy -= cmd.amount; const hops = getHopDistance(cmd.nodeId, cmd.targetId, gameState.edges);
+            let sent = cmd.amount; if (activeAtkBoosts.has(cmd.nodeId)) sent *= 2;
+            let received = sent; if (hops === 2) received = isBoostActive ? sent : Math.floor(sent * (1 - getLossRate(node.level, gameState.weather)));
+            inflows[cmd.targetId] += received;
+          } else if (cmd.type === 'upgrade') node.energy -= 30; else if (cmd.type === 'cut') node.energy -= 10;
+        });
+        return { predicted, inflows };
+      };
+
+      const drawCanvas = (ctx, state, commands, cpuCmds, ui, hoveredId, anim, time, currentPhase) => {
+        ctx.clearRect(0, 0, MAP_W, MAP_H);
+        const visibleNodes = getVisibleNodes(myPlayerNum, state.nodes, state.edges);
+        const { predicted, inflows } = currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS' ? calculatePrediction() : { predicted: state.nodes, inflows: {} };
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+        for(let i=0; i<MAP_W; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,MAP_H); ctx.stroke(); }
+        for(let i=0; i<MAP_H; i+=50) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(MAP_W,i); ctx.stroke(); }
+
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+        ctx.fillRect(0, 0, MAP_W, MAP_H);
+
+        ctx.globalCompositeOperation = 'destination-out';
+        if (state.alivePlayers.includes(myPlayerNum)) {
+          state.nodes.forEach(node => {
+            if (visibleNodes.has(node.id)) {
+              ctx.beginPath();
+              const grad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, 160);
+              grad.addColorStop(0, 'rgba(0,0,0,1)'); grad.addColorStop(0.5, 'rgba(0,0,0,0.8)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+              ctx.fillStyle = grad; ctx.arc(node.x, node.y, 160, 0, Math.PI * 2); ctx.fill();
+            }
+          });
+        } else { ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, MAP_W, MAP_H); }
+        ctx.globalCompositeOperation = 'source-over';
+
+        state.edges.forEach(edge => {
+          const s = state.nodes.find(n => n.id === edge.s); const t = state.nodes.find(n => n.id === edge.t);
+          if (!s || !t) return;
+          const isVisible = visibleNodes.has(s.id) && visibleNodes.has(t.id);
+          if (!isVisible && state.alivePlayers.includes(myPlayerNum)) return;
+          const isCutPlanned = commands.some(c => c.type === 'cut' && ((c.nodeId === s.id && c.targetId === t.id) || (c.nodeId === t.id && c.targetId === s.id)));
+
+          ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
+          if (isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS')) { ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4; ctx.setLineDash([10, 10]); } 
+          else { ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 5; ctx.setLineDash(edge.isOneWay ? [15, 10] : []); }
+          ctx.stroke(); ctx.setLineDash([]);
+          if (edge.isOneWay) {
+            const midX = (s.x + t.x) / 2, midY = (s.y + t.y) / 2, angle = Math.atan2(t.y - s.y, t.x - s.x);
+            ctx.save(); ctx.translate(midX, midY); ctx.rotate(angle); ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-10, -10); ctx.lineTo(-6, 0); ctx.lineTo(-10, 10); ctx.closePath();
+            ctx.fillStyle = isCutPlanned && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') ? '#ef4444' : 'rgba(255, 255, 255, 0.6)'; ctx.fill(); ctx.restore();
+          }
+        });
+
+        if (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') {
+          commands.forEach(cmd => {
+            if (cmd.type === 'move') {
+              const hasStealth = commands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === cmd.nodeId);
+              if (hasStealth) return; 
+              const s = state.nodes.find(n => n.id === cmd.nodeId), t = state.nodes.find(n => n.id === cmd.targetId);
+              if (s && t) {
+                ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
+                ctx.strokeStyle = getHopDistance(cmd.nodeId, cmd.targetId, state.edges) === 2 ? 'rgba(192, 132, 252, 0.8)' : 'rgba(14, 165, 233, 0.8)'; 
+                ctx.lineWidth = 4; ctx.setLineDash([10, 10]); ctx.lineDashOffset = -(time / 50) % 20; ctx.stroke(); ctx.setLineDash([]);
+              }
+            }
+          });
+        }
+
+        state.nodes.forEach(node => {
+          if (!visibleNodes.has(node.id) && state.alivePlayers.includes(myPlayerNum)) return; 
+          let alpha = 1;
+          if (node.isCollected) {
+             if (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') return; 
+             const p = anim.active ? anim.progress : 1; if (p > 0.85) alpha = 1 - ((p - 0.85) / 0.15); 
+          }
+          ctx.globalAlpha = alpha;
+          const isHovered = hoveredId === node.id, isSelected = ui.nodeId === node.id;
+          const predNode = predicted.find(n => n.id === node.id);
+          let drawOwner = node.owner, isBlinking = false;
+          if (currentPhase === 'ANIMATING' && anim.active) {
+            const p = anim.progress;
+            if (p > 0.6) {
+              const cap = anim.data.captures.find(c => c.nodeId === node.id), isItemCap = anim.data.items.some(i => i.x === node.x && i.y === node.y);
+              if (cap) { drawOwner = cap.newOwner; if (p < 0.85) isBlinking = Math.floor(time / 80) % 2 === 0; } 
+              else if (isItemCap && p < 0.85) { isBlinking = Math.floor(time / 80) % 2 === 0; }
+            }
+          }
+          const r = node.shobaType && SHOBA_INFO[node.shobaType] ? SHOBA_INFO[node.shobaType].radius : 25;
+
+          ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = isBlinking ? '#ffffff' : (node.type === 'dump' ? 'rgba(132, 204, 22, 0.5)' : `${COLORS.players[drawOwner]}88`); ctx.fill();
+
+          if (node.mode === 'long_range') { ctx.beginPath(); ctx.arc(node.x, node.y, r + 7, 0, Math.PI * 2); ctx.strokeStyle = COLORS.long_range; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]); }
+
+          ctx.lineWidth = isSelected ? 4 : isHovered ? 2 : 2; ctx.strokeStyle = isSelected ? COLORS.highlight : (node.type === 'dump' ? '#4d7c0f' : COLORS.players[drawOwner]); ctx.stroke();
+          
+          const imgKey = node.type === 'item' ? 'item' : (SHOBA_INFO[node.shobaType]?.imgKey);
+          const imgObj = loadedImages[imgKey];
+          
+          if (imgObj) {
+            const imgSize = r * 1.4;
+            ctx.drawImage(imgObj, node.x - imgSize/2, node.y - imgSize/2, imgSize, imgSize);
+          } else {
+            ctx.font = `${r * 1.2}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const emoji = node.type === 'item' ? '📦' : (SHOBA_EMOJI[node.shobaType] || '⛺');
+            ctx.fillText(emoji, node.x, node.y);
+          }
+
+          ctx.beginPath(); ctx.arc(node.x + r * 0.7, node.y + r * 0.7, 14, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = COLORS.players[drawOwner]; ctx.stroke();
+          ctx.fillStyle = '#ffffff'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(node.energy, node.x + r * 0.7, node.y + r * 0.7);
+
+          let title = node.type === 'item' ? '謎の段ボール' : SHOBA_INFO[node.shobaType]?.name || '';
+          if (node.level > 1 && node.type !== 'dump' && node.type !== 'item') title = `Lv.${node.level} ${getLevelName(node.level)}`;
+          if (title) {
+            const textWidth = ctx.measureText(title).width;
+            ctx.fillStyle = 'rgba(15,23,42,0.8)'; ctx.fillRect(node.x - textWidth/2 - 6, node.y - r - 22, textWidth + 12, 18);
+            ctx.fillStyle = isBlinking ? '#cbd5e1' : (node.type === 'dump' ? '#d9f99d' : '#94a3b8'); ctx.font = '10px sans-serif'; ctx.fillText(title, node.x, node.y - r - 12);
+          }
+
+          if ((currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS') && state.alivePlayers.includes(myPlayerNum)) {
+            const diff = (predNode ? predNode.energy : node.energy) - node.energy, inflow = inflows[node.id];
+            if (diff !== 0 || inflow > 0) {
+              ctx.font = 'bold 12px sans-serif';
+              if (diff < 0) { ctx.fillStyle = '#ef4444'; ctx.fillText(`${diff}`, node.x + 40, node.y - 20); }
+              if (inflow > 0) { ctx.fillStyle = '#38bdf8'; ctx.fillText(`+${inflow} IN`, node.x + 45, node.y); }
+            }
+          }
+          ctx.globalAlpha = 1.0;
+        });
+
+        if (ui.mode === 'SELECTING_TARGET') {
+          const sNode = state.nodes.find(n => n.id === ui.nodeId); const maxHops = (ui.actionType === 'move' && sNode.mode === 'long_range') ? 2 : 1;
+          getTargetableNodes(ui.nodeId, state.nodes, state.edges, maxHops).forEach(n => {
+            if (visibleNodes.has(n.id)) { ctx.beginPath(); ctx.arc(n.x, n.y, 40, 0, Math.PI * 2); ctx.fillStyle = 'rgba(250, 204, 21, 0.3)'; ctx.fill(); }
+          });
+        }
+
+        const drawStrokedText = (text, x, y, fillStyle, fontSize = 20) => {
+          ctx.font = `bold ${fontSize}px sans-serif`; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4; ctx.strokeText(text, x, y); ctx.fillStyle = fillStyle; ctx.fillText(text, x, y);
+        };
+
+        if (currentPhase === 'ANIMATING' && anim.active) {
+          const p = anim.progress; 
+          if (p < 0.25) {
+            const popP = p / 0.2;
+            if (popP <= 1.0) {
+              anim.data.prep.forEach(prep => {
+                const node = state.nodes.find(n => n.id === (prep.nodeId || prep.s)); if(!node || !visibleNodes.has(node.id)) return;
+                ctx.globalAlpha = 1 - Math.pow(popP, 2); const yOff = -40 * popP;
+                if (prep.type === 'upgrade') drawStrokedText(`設備強化!`, node.x, node.y + yOff, '#34d399');
+                else if (prep.type === 'toggle') drawStrokedText(`MODE: ${prep.mode.toUpperCase()}`, node.x, node.y + yOff, '#c084fc');
+                else if (prep.type === 'cut') drawStrokedText(`CUT!`, node.x, node.y + yOff, '#f87171');
+                else if (prep.type === 'emp_block') drawStrokedText(`カラス妨害!`, node.x, node.y + yOff, '#facc15');
+                else if (prep.type === 'mine_boost') drawStrokedText(`炊き出し x2!`, node.x, node.y + yOff, '#facc15');
+                else if (prep.type === 'atk_boost') drawStrokedText(`酒パワー x2!`, node.x, node.y + yOff, '#facc15');
+                else if (prep.type === 'sabotage') drawStrokedText(`サツ巡回!`, node.x, node.y + yOff, '#ef4444');
+                ctx.globalAlpha = 1.0;
+              });
+            }
+          }
+          const moveP = Math.max(0, Math.min(1, (p - 0.25) / 0.35)); 
+          if (moveP > 0 && moveP < 1) {
+            anim.data.movements.forEach(m => {
+              const s = state.nodes.find(n => n.id === m.source), t = state.nodes.find(n => n.id === m.target);
+              if(!s || !t || (!visibleNodes.has(s.id) && !visibleNodes.has(t.id))) return; 
+              const numParticles = Math.min(m.amount, 40);
+              for (let i = 0; i < numParticles; i++) {
+                const delay = i * (0.6 / numParticles), particleP = (moveP - delay) / 0.4; 
+                if (particleP > 0 && particleP < 1) {
+                  const px = s.x + (t.x - s.x) * particleP, py = s.y + (t.y - s.y) * particleP;
+                  const dx = t.y - s.y, dy = -(t.x - s.x), len = Math.sqrt(dx*dx + dy*dy) || 1;
+                  const waveAmt = Math.sin(particleP * Math.PI * 6 + i) * 6, nx = (dx/len) * waveAmt, ny = (dy/len) * waveAmt;
+                  ctx.beginPath(); ctx.arc(px + nx, py + ny, m.hops === 2 ? 2.5 : 4, 0, Math.PI * 2);
+                  ctx.fillStyle = m.hops === 2 ? '#c084fc' : COLORS.players[m.owner]; ctx.shadowBlur = 8; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
+                }
+              }
+              const headP = Math.max(0, Math.min(1, moveP / 0.4));
+              if (headP > 0 && headP < 1) drawStrokedText(m.amount, s.x + (t.x - s.x) * headP, s.y + (t.y - s.y) * headP - 20, '#fff', 14);
+            });
+          }
+          if (p > 0.55 && p < 0.8) {
+            const popP = (p - 0.55) / 0.25, easeOut = popP * (2 - popP); 
+            anim.data.combats.forEach(c => {
+              if (c.clashAmount > 0) {
+                const node = state.nodes.find(n => n.id === c.nodeId); if(!node || !visibleNodes.has(node.id)) return;
+                const numSparks = Math.min(c.clashAmount, 80); 
+                ctx.save(); ctx.globalCompositeOperation = 'lighter'; 
+                for (let i = 0; i < numSparks; i++) {
+                  const angle = i * 137.5 * Math.PI / 180, dist = (20 + (i % 60)) * easeOut;
+                  ctx.beginPath(); ctx.moveTo(node.x + Math.cos(angle) * Math.max(0, dist - 15), node.y + Math.sin(angle) * Math.max(0, dist - 15));
+                  ctx.lineTo(node.x + Math.cos(angle) * dist, node.y + Math.sin(angle) * dist);
+                  ctx.lineWidth = 4 * (1 - popP); ctx.strokeStyle = i % 2 === 0 ? `rgba(250, 204, 21, ${1 - popP})` : `rgba(255, 255, 255, ${1 - popP})`; ctx.stroke();
+                }
+                ctx.restore();
+              }
+            });
+          }
+          if (p > 0.6 && p < 0.85) {
+            const popP = (p - 0.6) / 0.2, yOffset = popP * -40;
+            anim.data.combats.forEach(c => {
+              const node = state.nodes.find(n => n.id === c.nodeId); if(!node || !visibleNodes.has(node.id)) return;
+              ctx.globalAlpha = 1 - popP;
+              if (c.attacker === 0 || c.force === 0) drawStrokedText(`相殺!`, node.x, node.y - 30 + yOffset, '#94a3b8', 24);
+              else if (c.attacker === node.owner) drawStrokedText(`+${c.force}`, node.x, node.y - 30 + yOffset, '#22c55e', 24);
+              else drawStrokedText(`-${c.force}`, node.x, node.y - 30 + yOffset, '#ef4444', 28);
+              ctx.globalAlpha = 1.0;
+            });
+            anim.data.captures.forEach(cap => {
+              const node = state.nodes.find(n => n.id === cap.nodeId); if(!node || !visibleNodes.has(node.id)) return;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(cap.newOwner === 0 ? '無人に...' : 'ショバ強奪!', node.x, node.y + 30 - yOffset, cap.newOwner === 0 ? '#cbd5e1' : COLORS.players[cap.newOwner], 22); ctx.globalAlpha = 1.0;
+            });
+          }
+          if (p > 0.85) {
+            const popP = (p - 0.85) / 0.15, yOffset = popP * -30;
+            anim.data.weatherDamages.forEach(w => {
+              const node = state.nodes.find(n => n.id === w.nodeId); if(!node || !visibleNodes.has(node.id)) return;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`寒波ダメージ -${w.amount}`, node.x, node.y - 35 + yOffset, '#22d3ee', 16); ctx.globalAlpha = 1.0;
+            });
+            anim.data.trashBonuses.forEach(b => {
+              const node = state.nodes.find(n => n.id === b.nodeId); if(!node || !visibleNodes.has(node.id)) return;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`ゴミの日! +${b.amount}`, node.x, node.y - 35 + yOffset, '#84cc16', 20); ctx.globalAlpha = 1.0;
+            });
+            anim.data.mines.forEach(m => {
+              const node = state.nodes.find(n => n.id === m.nodeId); if(!node || !visibleNodes.has(node.id)) return;
+              ctx.globalAlpha = 1 - popP; drawStrokedText(`+${m.amount} 資源`, node.x + 40, node.y + yOffset, '#4ade80', 16); ctx.globalAlpha = 1.0;
+            });
+            anim.data.items.forEach(itm => {
+               if (itm.owner === myPlayerNum) { ctx.globalAlpha = 1 - popP; drawStrokedText(`GET: ${CHIP_TYPES[itm.item].name}`, itm.x, itm.y - 50 + yOffset, '#facc15', 18); ctx.globalAlpha = 1.0; }
+            });
+          }
+        }
+      };
+
+      const renderMenu = () => {
+        if (uiState.mode !== 'MENU_OPEN' || !gameState) return null;
+        const node = gameState.nodes.find(n => n.id === uiState.nodeId); if (!node) return null;
+        const existingCmdType = playerCommands.find(c => c.nodeId === node.id)?.type || null;
+        const isMoveAllowed = !existingCmdType || existingCmdType === 'move', isOthersAllowed = !existingCmdType;
+        const moveAssigned = playerCommands.filter(c => c.nodeId === node.id && c.type === 'move').reduce((s, c) => s + c.amount, 0);
+        const availableEnergy = node.energy - moveAssigned;
+        const menuWidth = 280, menuHeight = 80;
+        let leftPos = node.x, topPos = node.y - menuHeight - 30;
+        if (topPos < 10) topPos = node.y + 40; 
+        if (leftPos - menuWidth / 2 < 10) leftPos = menuWidth / 2 + 10; else if (leftPos + menuWidth / 2 > MAP_W - 10) leftPos = MAP_W - menuWidth / 2 - 10;
+
+        return (
+          <div className="absolute transform -translate-x-1/2 bg-slate-800/95 backdrop-blur border border-slate-500 rounded-lg p-2 flex gap-2 shadow-2xl z-20" style={{ left: leftPos, top: topPos }}>
+            <button onClick={() => {
+                if (selectedChip?.id === 'STEALTH') {
+                  if (!playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === node.id)) addCommand({ type: 'use_chip', chip: 'STEALTH', playerId: myPlayerNum, chipIdx: selectedChip.idx, targetId: node.id });
+                  setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' }); setSelectedChip(null);
+                } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
+              }}
+              disabled={!isMoveAllowed || availableEnergy <= 0}
+              className={`flex flex-col items-center justify-center w-16 h-16 rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed`}
+            >
+              <span className="text-xl">➡️</span>
+              <span className="text-[10px] mt-1 text-center leading-tight">輸送<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
+            </button>
+            <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} disabled={!isOthersAllowed} className="flex flex-col items-center justify-center w-16 h-16 rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <span className="text-xl">📡</span>
+              {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">採掘再開<br/>(通常モード)</span> : <span className="text-[10px] mt-1 text-center leading-tight">遠隔切替<br/>(採掘停止)</span>}
+            </button>
+            <button onClick={() => { if (node.energy >= 30 && node.level < 3) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} disabled={!isOthersAllowed || node.energy < 30 || node.level >= 3} className="flex flex-col items-center justify-center w-16 h-16 rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <span className="text-xl">🔨</span>
+              <span className="text-[10px] mt-1 text-center leading-tight">設備強化<br/>(-30缶)</span>
+            </button>
+            <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} disabled={!isOthersAllowed || node.energy < 10} className="flex flex-col items-center justify-center w-16 h-16 rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <span className="text-xl">✂️</span>
+              <span className="text-[10px] mt-1 text-center leading-tight">カット<br/>(-10缶)</span>
+            </button>
+          </div>
+        );
+      };
+
+      const renderTargetPrompt = () => {
+        if (selectedChip?.id === 'EMP' || selectedChip?.id === 'SABOTAGE') {
+          return (
+            <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-indigo-500/20 text-indigo-300 px-6 py-2 rounded-full border border-indigo-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
+              {CHIP_TYPES[selectedChip.id].name}: 対象の敵ショバを選択してください
+            </div>
+          );
+        }
+        if (selectedChip?.id === 'MINE_BOOST' || selectedChip?.id === 'ATK_BOOST') {
+          return (
+            <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
+              {CHIP_TYPES[selectedChip.id].name}: 対象の自派閥ショバを選択してください
+            </div>
+          );
+        }
+        if (uiState.mode !== 'SELECTING_TARGET' || !gameState) return null;
+        const isLong = gameState.nodes.find(n => n.id === uiState.nodeId)?.mode === 'long_range';
+        return (
+          <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-yellow-500/20 text-yellow-300 px-6 py-2 rounded-full border border-yellow-500/50 flex items-center gap-2 animate-pulse pointer-events-none z-30">
+            🎯 {uiState.actionType === 'move' ? `対象ショバ（${isLong ? '2マス先まで、ロスあり' : '隣接方向'}）を選択してください` : '切断する対象ショバを選択してください'}
+          </div>
+        );
+      };
+
+      const renderSlider = () => {
+        if (uiState.mode !== 'INPUT_AMOUNT') return null;
+        return (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-800 border border-slate-600 p-6 rounded-xl shadow-2xl z-30 w-80">
+            <h3 className="text-white text-lg mb-4 flex items-center gap-2">🪙 資源輸送量</h3>
+            <input type="range" min="1" max={uiState.maxAmount} value={amountSlider} onChange={(e) => setAmountSlider(parseInt(e.target.value))} className="w-full accent-sky-500 mb-4" />
+            <div className="flex justify-between text-slate-300 text-sm mb-6"><span>1</span><span className="text-2xl font-bold text-sky-400">{amountSlider}</span><span>{uiState.maxAmount}</span></div>
+            <div className="flex gap-3">
+              <button onClick={() => setUiState({ mode: 'IDLE' })} className="flex-1 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white">キャンセル</button>
+              <button onClick={() => addCommand({ type: 'move', nodeId: uiState.nodeId, targetId: uiState.targetId, amount: amountSlider, playerId: myPlayerNum })} className="flex-1 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold">決定</button>
+            </div>
+          </div>
+        );
+      };
+
+      if (phase === 'SETUP') {
+        return (
+          <div className="w-full h-screen flex flex-col items-center justify-center font-sans" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+            <div className="mb-8 flex flex-col items-center justify-center gap-4 text-sky-400">
+              <div className="flex gap-4">
+                 <span className="text-6xl animate-bounce">🗑️</span>
+                 <h1 className="text-6xl font-black tracking-widest drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] text-yellow-500">HOMELESS WARS</h1>
+              </div>
+              <p className="text-slate-300 tracking-widest text-xl mt-2 font-bold">〜地下帝国のドン〜</p>
+            </div>
+            
+            {!gameMode ? (
+              <div className="flex gap-8 mt-4">
+                <button onClick={() => setGameMode('SOLO')} className="bg-slate-800/80 p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-72">
+                  <span className="text-6xl mb-4">👤</span>
+                  <h3 className="text-2xl text-white font-bold">ソロプレイ</h3>
+                  <p className="text-slate-400 mt-2 text-sm text-center">AIのCPUを相手に<br/>一人で手軽に遊ぶ</p>
+                </button>
+                <button onClick={() => setGameMode('MULTI')} className="bg-slate-800/80 p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center hover:bg-slate-700 transition-colors w-72">
+                  <span className="text-6xl mb-4">🌐</span>
+                  <h3 className="text-2xl text-sky-400 font-bold">ローカル通信対戦</h3>
+                  <p className="text-slate-400 mt-2 text-sm text-center">2つのウィンドウを開いて<br/>同じPC・ブラウザ内で遊ぶ</p>
+                </button>
+              </div>
+            ) : gameMode === 'SOLO' ? (
+              <div className="bg-slate-800/80 p-8 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center mt-4">
+                <h3 className="text-2xl text-white font-bold mb-6">参加派閥数を選択</h3>
+                <div className="flex gap-4 mb-6">
+                  {[2, 3, 4].map(num => (
+                    <button key={num} onClick={() => startSoloGame(num)} className="px-8 py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors text-xl">{num} 派閥</button>
+                  ))}
+                </div>
+                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-4">◀ モード選択へ戻る</button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center mt-4">
+                <div className="flex gap-8">
+                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center">
+                    <h3 className="text-xl text-yellow-400 font-bold mb-6 flex items-center gap-2">⛺ 新しくショバを作る</h3>
+                    <div className="flex gap-3">
+                      {[2, 3, 4].map(num => (
+                        <button key={num} onClick={() => createRoom(num)} className="px-6 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-lg transition-colors">{num} 派閥</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center">
+                    <h3 className="text-xl text-sky-400 font-bold mb-6 flex items-center gap-2">🍶 既存のショバにカチこむ</h3>
+                    <div className="flex gap-3">
+                      <input type="text" placeholder="ルームID" value={joinInput} onChange={(e) => setJoinInput(e.target.value)} className="px-4 py-3 rounded-lg bg-slate-900 text-white border border-slate-600 w-36 uppercase font-mono text-center text-xl tracking-widest" maxLength={4} />
+                      <button onClick={() => joinRoom(joinInput)} className="px-6 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-colors">参加</button>
+                    </div>
+                    {errorMsg && <p className="text-red-400 text-sm mt-3 font-bold">{errorMsg}</p>}
+                  </div>
+                </div>
+                <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-8">◀ モード選択へ戻る</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (phase === 'WAITING_ROOM') {
+        return (
+          <div className="w-full h-screen flex flex-col items-center justify-center font-sans text-white" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+            <h2 className="text-4xl font-black text-yellow-400 mb-6 drop-shadow-lg flex items-center gap-3">👥 参加者待機中...</h2>
+            <p className="text-2xl mb-10 text-slate-300">ルームID: <span className="font-mono bg-slate-800/80 px-6 py-2 rounded-lg border border-slate-500 text-4xl tracking-[0.2em] text-white ml-2">{roomId}</span></p>
+            
+            <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur w-96 mb-10">
+              <h3 className="text-lg text-slate-300 mb-4 font-bold border-b border-slate-600 pb-2">参加メンバー ({gameData?.playerUids?.length} / {gameData?.playerCount})</h3>
+              <ul className="space-y-3">
+                {gameData?.playerUids?.map((uid, i) => (
+                  <li key={uid} className="bg-slate-900/50 px-4 py-3 rounded-lg flex justify-between items-center border border-slate-700">
+                    <div className="flex items-center gap-3">
+                      <div className="w-4 h-4 rounded-full" style={{backgroundColor: COLORS.players[gameData.players[uid]]}}></div>
+                      <span className="font-bold text-lg">派閥 {gameData.players[uid]} {uid === myUid ? '(あなた)' : ''}</span>
+                    </div>
+                    {gameData.hostUid === uid && <span className="text-yellow-400 text-xs font-black bg-yellow-900/50 px-2 py-1 rounded">HOST</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {gameMode === 'HOST' ? (
+              <button onClick={startGame} className="px-12 py-5 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white font-black text-2xl rounded-xl shadow-2xl transition-all hover:-translate-y-1">
+                ゲーム開始 (空き枠はAIが担当)
+              </button>
+            ) : (
+              <div className="flex items-center gap-3 text-slate-400 text-lg animate-pulse">
+                ⏳ ホストが開始するのを待っています...
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      const currentDayIndex = gameState ? (gameState.turn - 1) % 7 : 0;
+
+      return (
+        <div className="w-full h-screen flex flex-col items-center justify-center font-sans select-none text-white" style={{ background: '#0f172a' }}>
+          
+          <div className="absolute top-0 w-full max-w-5xl p-4 flex justify-between items-center z-10 pointer-events-none">
+            <div className="flex flex-col gap-2 pointer-events-auto">
+              <div className="flex gap-3">
+                {Array.from({length: gameState.playerCount}).map((_, i) => {
+                  const p = i + 1; const isAlive = gameState.alivePlayers.includes(p);
+                  return (
+                    <div key={p} className={`px-4 py-2 rounded-lg flex items-center gap-2 border transition-all ${isAlive ? 'opacity-100' : 'opacity-30 grayscale'}`} style={{ borderColor: COLORS.players[p], backgroundColor: `${COLORS.players[p]}33` }}>
+                      <span style={{fontSize: '18px'}}>{p === myPlayerNum ? '🛡️' : '👥'}</span>
+                      <span className="font-bold text-sm">{p === myPlayerNum ? '自派閥' : `派閥 ${p}`}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {(phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') && gameState.alivePlayers.includes(myPlayerNum) && gameState.chips[myPlayerNum].length > 0 && (
+                <div className="flex gap-2">
+                  {gameState.chips[myPlayerNum].map((chipId, idx) => {
+                    const isUsed = playerCommands.some(c => c.type === 'use_chip' && c.chipIdx === idx);
+                    const usedCount = playerCommands.filter(c => c.type === 'use_chip').length;
+                    const isDisabled = isUsed || (!isUsed && usedCount >= 2) || phase !== 'INPUT';
+                    const isSelected = selectedChip?.idx === idx;
+                    const info = CHIP_TYPES[chipId];
+                    const imgSrc = loadedImages[info.imgKey]?.src;
+
+                    return (
+                      <div key={idx} className="relative group">
+                        <button onClick={() => !isDisabled && handleChipSelect(chipId, idx)} disabled={isDisabled && !isSelected} className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-all ${isUsed ? 'bg-slate-700 text-slate-500 border-slate-600' : isSelected ? 'bg-indigo-600 text-white border-indigo-400 animate-pulse' : isDisabled ? 'bg-slate-800 text-slate-600 border-slate-700 opacity-50' : 'bg-slate-800 text-indigo-300 border-indigo-500 hover:bg-indigo-900'}`}>
+                          {imgSrc ? <img src={imgSrc} alt={info.name} className="w-4 h-4 object-contain" /> : <span>{info.icon}</span>}
+                          {info.name}
+                        </button>
+                        <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 hidden group-hover:block bg-slate-900/95 text-slate-200 text-xs px-3 py-2 rounded-lg border border-indigo-500/50 whitespace-nowrap z-50 shadow-[0_0_10px_rgba(99,102,241,0.2)] pointer-events-none">
+                          <div className="font-bold text-indigo-300 mb-1 flex items-center gap-1">
+                            {imgSrc ? <img src={imgSrc} alt={info.name} className="w-4 h-4 object-contain" /> : <span>{info.icon}</span>} {info.name}
+                          </div>
+                          <div className="text-slate-300">{info.desc}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex flex-col items-end gap-2">
+              {gameMode !== 'SOLO' && <div className="text-slate-400 font-mono text-sm bg-slate-800/80 px-3 py-1 rounded border border-slate-600">ROOM: {roomId}</div>}
+              <div className="flex items-center gap-4 bg-slate-800 border border-slate-600 px-5 py-2 rounded-full shadow-lg">
+                <div className="flex items-center gap-2 text-slate-300">
+                  <span className="text-sky-400">📅</span> <span className="font-bold text-lg">{gameState.turn}日目 ({DAYS[currentDayIndex]})</span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-300 border-l border-slate-600 pl-4">
+                  {renderWeatherIcon(gameState.weather, 'w-6 h-6', loadedImages)} <span className="font-bold">{getWeatherName(gameState.weather)}</span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-500 border-l border-slate-600 pl-4 text-xs">
+                  明日: {renderWeatherIcon(gameState.forecast, 'w-4 h-4', loadedImages)}
+                </div>
+                <div className="flex items-center gap-2 text-lime-400 border-l border-slate-600 pl-4 text-sm font-bold">
+                  🗑️ 回収日: {DAYS[gameState.trashDays[0]]}・{DAYS[gameState.trashDays[1]]}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative border-y border-slate-700 shadow-2xl rounded-xl overflow-hidden mt-8" style={{ width: MAP_W, height: MAP_H, backgroundImage: gameState ? BACKGROUNDS[gameState.weather] : BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center' }}>
+            <canvas ref={canvasRef} width={MAP_W} height={MAP_H} onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} className={`absolute top-0 left-0 ${phase==='INPUT' ? 'cursor-crosshair' : ''}`} />
+            
+            {renderMenu()}
+            {renderTargetPrompt()}
+            {renderSlider()}
+            
+            {phase === 'ANIMATING' && (
+               <div className="absolute top-8 left-1/2 transform -translate-x-1/2 text-white text-xl font-black tracking-widest bg-slate-900/80 border border-yellow-500/50 px-8 py-2 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.3)] z-10">
+                 {animRef.current.progress < 0.25 ? 'PHASE 1: 準備 (カット・設備強化)' : 
+                  animRef.current.progress < 0.6 ? 'PHASE 2: 輸送 & 襲撃' : 
+                  animRef.current.progress < 0.85 ? 'PHASE 3: 解決 (乱闘・ショバ強奪)' : 'PHASE 4: 資源回収・天候効果'}
+               </div>
+            )}
+
+            {phase === 'WAITING_FOR_OTHERS' && (
+              <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center z-40 pointer-events-auto">
+                <span className="text-6xl animate-spin text-sky-400 mb-6 inline-block">⏳</span>
+                <h2 className="text-3xl font-black text-white tracking-widest drop-shadow-lg mb-8">他の派閥の行動を待機中...</h2>
+                <div className="flex gap-4">
+                   {Object.values(gameData?.players || {}).filter(p => gameState.alivePlayers.includes(p)).map(p => {
+                     const isReady = gameData?.turnReady?.[p];
+                     return (
+                       <div key={p} className={`px-6 py-3 rounded-lg border flex flex-col items-center gap-2 shadow-lg transition-colors ${isReady ? 'bg-sky-600/80 border-sky-400 text-white' : 'bg-slate-800/80 border-slate-600 text-slate-400'}`}>
+                         <span className="font-bold text-lg">派閥 {p}</span><span className="text-sm">{isReady ? '準備完了' : '考慮中...'}</span>
+                       </div>
+                     );
+                   })}
+                </div>
+              </div>
+            )}
+
+            {phase === 'GAME_OVER' && (
+              <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+                <h1 className="text-7xl font-black mb-6 drop-shadow-lg" style={{ color: gameState.winner ? COLORS.players[gameState.winner] : '#cbd5e1' }}>
+                  {gameState.winner === myPlayerNum ? 'VICTORY' : gameState.winner ? `派閥 ${gameState.winner} の勝利` : 'DRAW'}
+                </h1>
+                {gameState.winner !== myPlayerNum && gameState.winner !== null && <p className="text-red-400 text-2xl font-bold mb-4 tracking-widest">地下帝国 陥落</p>}
+                <button onClick={() => window.location.reload()} className="px-10 py-4 bg-white hover:bg-slate-200 text-slate-900 font-bold text-xl rounded-xl mt-6 transition-all shadow-xl">タイトルへ戻る</button>
+              </div>
+            )}
+          </div>
+
+          <div className="w-full max-w-5xl flex gap-6 px-4 mt-6">
+            <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-4 h-32 overflow-y-auto relative">
+              <h3 className="text-slate-400 text-sm font-bold mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">🪙 行動予定 (1ショバにつき1行動)</div>
+              </h3>
+              {!gameState?.alivePlayers.includes(myPlayerNum) && (phase === 'INPUT' || phase === 'WAITING_FOR_OTHERS') ? (
+                 <div className="text-red-400 text-sm">あなたの派閥は全滅しました。観戦モードです。</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {playerCommands.map((cmd, idx) => (
+                    <div key={idx} className={`border rounded px-3 py-1.5 flex items-center gap-3 text-sm shadow ${cmd.type === 'use_chip' ? 'bg-indigo-900/50 border-indigo-500 text-indigo-200' : 'bg-slate-700 border-slate-600 text-white'}`}>
+                      {cmd.type === 'move' && (() => {
+                         const isStealth = playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === cmd.nodeId);
+                         return <><span className="text-sky-400">➡️</span> {cmd.nodeId} → {cmd.targetId} ({cmd.amount}) {isStealth && '(隠密)'}</>;
+                      })()}
+                      {cmd.type === 'toggle_mode' && <><span className="text-purple-400">📡</span> {cmd.nodeId} 遠隔切替</>}
+                      {cmd.type === 'upgrade' && <><span className="text-emerald-400">⛺</span> {cmd.nodeId} 設備強化</>}
+                      {cmd.type === 'cut' && <><span className="text-red-400">✂️</span> {cmd.nodeId}-{cmd.targetId} 切断</>}
+                      {cmd.type === 'use_chip' && (() => {
+                        const info = CHIP_TYPES[cmd.chip];
+                        const imgSrc = loadedImages[info.imgKey]?.src;
+                        return (
+                          <>
+                            {imgSrc ? <img src={imgSrc} className="w-4 h-4 object-contain"/> : <span className="text-indigo-400">{info.icon}</span>}
+                            {info.name} {cmd.targetId && `-> ${cmd.targetId}`}
+                          </>
+                        );
+                      })()}
+                      {phase === 'INPUT' && <button onClick={() => removeCommand(cmd)} className="text-slate-400 hover:text-white ml-2">❌</button>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={handleLockIn} disabled={phase !== 'INPUT'} className="w-64 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-black text-xl rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg">
+              <span className="text-2xl">▶️</span> {gameState?.alivePlayers.includes(myPlayerNum) ? '行動確定' : '待機中'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<NodeWars />);
+  </script>
+</body>
+</html>
