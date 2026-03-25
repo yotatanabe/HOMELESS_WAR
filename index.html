@@ -668,6 +668,10 @@
       const [selectedChip, setSelectedChip] = useState(null);
       
       const [copiedText, setCopiedText] = useState(false);
+      
+      const [aiAdvice, setAiAdvice] = useState(null);
+      const [isAiLoading, setIsAiLoading] = useState(false);
+      const [showAiPanel, setShowAiPanel] = useState(false);
 
       const canvasRef = useRef(null);
       const animRef = useRef({ active: false, progress: 0, data: null });
@@ -891,6 +895,35 @@
         const newGameData = { ...gameData, cpuPlayers, status: 'PLAYING' };
         setGameData(newGameData); setGameState(initialState); setPhase('INPUT');
         sendMessage({ type: 'GAME_START', state: initialState, gameData: newGameData });
+      };
+
+      const handleAiAdvice = async () => {
+        if (!gameState) return;
+        const GEMINI_API_KEY = "ここに_Gemini_APIキー_を貼り付ける";
+        if (!GEMINI_API_KEY || GEMINI_API_KEY === "ここに_Gemini_APIキー_を貼り付ける" || GEMINI_API_KEY === "") {
+          setAiAdvice("APIキーが設定されていないためAI参謀は利用できません。\nHTMLファイル内の GEMINI_API_KEY に取得したキーを貼り付けてください。");
+          setShowAiPanel(true);
+          return;
+        }
+        setIsAiLoading(true); setAiAdvice(null); setShowAiPanel(true);
+        const visibleSet = getVisibleNodes(myPlayerNum, gameState.nodes, gameState.edges);
+        const visibleNodes = gameState.nodes.filter(n => visibleSet.has(n.id));
+        const myNodes = visibleNodes.filter(n => n.owner === myPlayerNum);
+        const cpuNodes = visibleNodes.filter(n => n.owner !== myPlayerNum && n.owner !== 0 && n.type !== 'item');
+        const neutralNodes = visibleNodes.filter(n => n.owner === 0 && n.type !== 'item');
+        const myEnergy = myNodes.reduce((sum, n) => sum + n.energy, 0);
+        const cpuEnergy = cpuNodes.reduce((sum, n) => sum + n.energy, 0);
+
+        const prompt = `現在ターン: ${gameState.turn}日目\n天候: ${getWeatherName(gameState.weather)}\nゴミ回収日: ${DAYS[gameState.trashDays[0]]}曜、${DAYS[gameState.trashDays[1]]}曜\n生存派閥数: ${gameState.alivePlayers.length}\n自派閥のショバ(拠点)数: ${myNodes.length} (総資源: ${myEnergy})\n視界内の敵ショバ数: ${cpuNodes.length} (総資源: ${cpuEnergy})\n視界内の未占領ショバ数: ${neutralNodes.length}\nあなたはホームレス地下帝国の冷徹な参謀です。上記の状況を元に、リーダー（プレイヤー）に向けて次の一手の戦術アドバイスを3〜4行程度で簡潔に提供してください。裏社会らしい荒々しくもクールな口調でお願いします。`;
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+          });
+          const data = await res.json();
+          setAiAdvice(data.candidates?.[0]?.content?.parts?.[0]?.text || "通信エラー。");
+        } catch (e) { setAiAdvice("通信エラーが発生しました。"); } 
+        finally { setIsAiLoading(false); }
       };
 
       // --- インタラクション ---
