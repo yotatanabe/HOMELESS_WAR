@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ホームレス・サバイバル 〜地下帝国のドン〜 (P2P通信版)</title>
+  <title>ホームレス・サバイバル 〜地下帝国のドン〜</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -68,6 +68,40 @@
 
     const SHOBA_EMOJI = { station: '🚉', bench: '🪑', underpass: '🌉', ruin: '🏚️', dump: '🗑️' };
     const DAYS = ['月', '火', '水', '木', '金', '土', '日'];
+
+    // --- チュートリアル用のデータ ---
+    const TUTORIAL_SLIDES = [
+      {
+        title: "🎯 ゲームの目的",
+        icon: "👑",
+        content: "あなたは地下帝国のドンです。他の派閥と「ショバ（拠点）」を奪い合い、自分以外のすべての派閥を全滅させれば勝利となります。\nショバにある数字は「エネルギー（兵力）」です。エネルギーを他のショバに送って攻撃・防衛を行います。"
+      },
+      {
+        title: "🏃‍♂️ 基本の行動",
+        icon: "➡️",
+        content: "自分のショバをクリックするとメニューが開きます。\n「輸送」を選び、隣接するショバを選択して送るエネルギー量を決めます。\n全員が行動を「確定」すると、一斉に移動と戦闘が行われる【同時ターン制】です。"
+      },
+      {
+        title: "⛺ 拠点の強化 と ✂️ カット",
+        icon: "🔨",
+        content: "【設備強化】: 30エネルギーを消費して拠点のレベルを上げます。最大蓄積量と毎ターンの回復量が増加します。\n【カット】: 10エネルギーを消費して、指定した道を1ターンの間「通行止め」にします。敵の進行を防ぐ防衛の要です。"
+      },
+      {
+        title: "📡 遠隔モード",
+        icon: "📡",
+        content: "「遠隔モード」に切り替えると、毎ターンのエネルギー回復が止まる代わりに、2マス先まで（一方通行を無視して）攻撃できるようになります。\nただし、2マス先への輸送は距離による「ロス（減衰）」が発生します。レベルを上げるとロスは軽減されます。"
+      },
+      {
+        title: "🗑️ ゴミの日 と 📦 アイテム",
+        icon: "🗑️",
+        content: "【ゴミ捨て場】は普段は何も生み出しませんが、「ゴミの日（火曜・金曜など）」になると大量のエネルギーが投棄されます！\nまた、定期的に現れる【謎の段ボール】を攻撃してエネルギーを0にすると、戦局を覆す強力な「チップ（アイテム）」を獲得できます。"
+      },
+      {
+        title: "⚔️ 戦闘と乱戦",
+        icon: "⚔️",
+        content: "複数の派閥が同じショバに攻め込んだ場合、入り乱れての「乱戦」になります。\nエネルギーがランダムに削り合いとなり、最後まで生き残ってエネルギーが多かった派閥がそのショバを占領します。\n「拾った酒」チップで攻撃力を2倍にするなど、アイテムを駆使して勝ち残りましょう！"
+      }
+    ];
 
     const generateWeather = () => {
       const r = Math.random();
@@ -385,6 +419,7 @@
             node.energy += added; if (added > 0) animData.mines.push({ nodeId: node.id, amount: added });
           }
         }
+        // ★ 誰の陣地にもなっていないゴミ捨て場にはエネルギーを追加しない
         if (isTrashDay && node.type === 'dump') {
            if (node.owner !== 0) {
              const added = Math.min(node.maxEnergy - node.energy, 80);
@@ -416,6 +451,7 @@
         });
       });
 
+      // ★ 新しい戦闘・占領ロジック
       next.nodes.forEach(node => {
         const nodeInflows = inflows[node.id];
         const originalEnergy = node.energy;
@@ -542,12 +578,17 @@
       const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
 
       const [gameMode, setGameMode] = useState(null); // 'SOLO' | 'HOST' | 'CLIENT'
+      const [roomId, setRoomId] = useState('');
+      const [joinInput, setJoinInput] = useState('');
+      const [errorMsg, setErrorMsg] = useState('');
       
       const [gameData, setGameData] = useState(null);
       const [myPlayerNum, setMyPlayerNum] = useState(1);
 
       const [loadedImages, setLoadedImages] = useState({});
-      const [phase, setPhase] = useState('SETUP'); 
+      const [phase, setPhase] = useState('SETUP'); // 新たに 'TUTORIAL' フェーズを追加
+      const [tutorialPage, setTutorialPage] = useState(0); // チュートリアルの現在のスライド
+
       const [gameState, setGameState] = useState(null);
       const [playerCommands, setPlayerCommands] = useState([]); 
       const [uiState, setUiState] = useState({ mode: 'IDLE', nodeId: null, targetId: null, maxAmount: 0 }); 
@@ -804,7 +845,7 @@
         let animationFrameId;
         const render = (time) => {
           const ctx = canvasRef.current?.getContext('2d');
-          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM') {
+          if (ctx && gameState && phase !== 'SETUP' && phase !== 'WAITING_ROOM' && phase !== 'TUTORIAL') {
             drawCanvas(ctx, gameState, playerCommands, [], uiState, hoveredNode, animRef.current, time, phase);
           }
           animationFrameId = requestAnimationFrame(render);
@@ -1302,9 +1343,65 @@
         );
       };
 
+      // --- チュートリアル画面 ---
+      if (phase === 'TUTORIAL') {
+        const slide = TUTORIAL_SLIDES[tutorialPage];
+        return (
+          <div className="w-full h-screen bg-slate-900 flex items-center justify-center font-sans text-white p-4" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+            <div className="w-full max-w-4xl bg-slate-800 border border-sky-500/50 rounded-2xl shadow-[0_0_30px_rgba(14,165,233,0.3)] overflow-hidden flex flex-col">
+              <div className="bg-slate-900 px-6 py-4 flex justify-between items-center border-b border-slate-700">
+                <h2 className="text-2xl font-bold text-sky-400 flex items-center gap-2"><span>📖</span> 遊び方・ルール</h2>
+                <button onClick={() => { setPhase('SETUP'); setTutorialPage(0); }} className="text-slate-400 hover:text-white text-2xl transition-colors">✖</button>
+              </div>
+              
+              <div className="p-10 flex-1 flex flex-col items-center justify-center min-h-[400px] text-center">
+                <div className="text-7xl mb-8">{slide.icon}</div>
+                <h3 className="text-4xl font-bold text-yellow-400 mb-8">{slide.title}</h3>
+                <p className="text-slate-300 text-xl leading-loose whitespace-pre-wrap text-left max-w-3xl">{slide.content}</p>
+              </div>
+
+              <div className="bg-slate-900 px-8 py-5 flex justify-between items-center border-t border-slate-700">
+                <button 
+                  onClick={() => setTutorialPage(p => Math.max(0, p - 1))}
+                  disabled={tutorialPage === 0}
+                  className="px-8 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-white font-bold transition-colors text-lg"
+                >
+                  ◀ 前へ
+                </button>
+                
+                <div className="flex gap-3">
+                  {TUTORIAL_SLIDES.map((_, i) => (
+                    <div key={i} className={`w-4 h-4 rounded-full transition-colors ${i === tutorialPage ? 'bg-sky-400' : 'bg-slate-600'}`}></div>
+                  ))}
+                </div>
+
+                <button 
+                  onClick={() => {
+                    if (tutorialPage === TUTORIAL_SLIDES.length - 1) {
+                      setPhase('SETUP');
+                      setTutorialPage(0);
+                    } else {
+                      setTutorialPage(p => p + 1);
+                    }
+                  }}
+                  className={`px-8 py-3 rounded-lg text-white font-bold transition-colors text-lg ${tutorialPage === TUTORIAL_SLIDES.length - 1 ? 'bg-green-600 hover:bg-green-500' : 'bg-sky-600 hover:bg-sky-500'}`}
+                >
+                  {tutorialPage === TUTORIAL_SLIDES.length - 1 ? '閉じる' : '次へ ▶'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       if (phase === 'SETUP') {
         return (
-          <div className="w-full h-screen flex flex-col items-center justify-center font-sans" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+          <div className="w-full h-screen flex flex-col items-center justify-center font-sans relative" style={{ backgroundImage: BACKGROUNDS.sunny, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: 'inset 0 0 0 2000px rgba(15, 23, 42, 0.85)' }}>
+            
+            <button onClick={() => setPhase('TUTORIAL')} className="absolute top-6 right-6 bg-slate-800/80 hover:bg-slate-700 text-sky-300 px-6 py-3 rounded-xl border border-sky-500/50 transition-colors flex items-center gap-2 shadow-lg backdrop-blur font-bold z-50">
+              <span className="text-2xl">📖</span> ルール＆遊び方
+            </button>
+
             <div className="mb-8 flex flex-col items-center justify-center gap-4 text-sky-400">
               <div className="flex gap-4">
                  <span className="text-6xl animate-bounce">🗑️</span>
@@ -1344,14 +1441,14 @@
                     <p className="text-slate-400 text-sm text-center mb-6">参加人数を選んで<br/>招待コードを発行します。</p>
                     <div className="flex gap-2">
                       {[2, 3, 4].map(num => (
-                        <button key={num} onClick={() => createRoom(num)} className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded transition-colors">{num} 派閥</button>
+                        <button key={num} onClick={() => startHosting(num)} className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded transition-colors">{num} 派閥</button>
                       ))}
                     </div>
                   </div>
                   <div className="bg-slate-800/80 p-6 rounded-xl border border-slate-500 shadow-xl backdrop-blur flex flex-col items-center w-80">
                     <h3 className="text-xl text-sky-400 font-bold mb-4">🍶 部屋に参加 (ゲスト)</h3>
                     <p className="text-slate-400 text-sm text-center mb-6">ホストから受け取った<br/>招待コードで参加します。</p>
-                    <button onClick={joinRoom} className="px-8 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-colors w-full">参加準備へ</button>
+                    <button onClick={prepareJoining} className="px-8 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg transition-colors w-full">参加準備へ</button>
                   </div>
                 </div>
                 <button onClick={() => setGameMode(null)} className="text-slate-400 hover:text-white underline mt-8">◀ モード選択へ戻る</button>
