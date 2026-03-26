@@ -12,6 +12,7 @@
   
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   
+  <!-- Firebase SDK (互換性バージョン) の追加 -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
   
@@ -86,6 +87,15 @@
       organ: { name: '主要臓器', radius: 32, icon: '🫀' },
       necrosis: { name: '壊死部位', radius: 32, icon: '💀' },
     };
+
+    const ANIMAL_NAMES = [
+      "ライオン", "トラ", "ゾウ", "キリン", "サイ", "カバ", "シマウマ", "チーター", "クマ", "パンダ", 
+      "コアラ", "カンガルー", "ゴリラ", "チンパンジー", "キツネ", "タヌキ", "アライグマ", "カワウソ", "ラッコ", "カピバラ", 
+      "リス", "モモンガ", "ウサギ", "ハムスター", "ハリネズミ", "モグラ", "アルマジロ", "ナマケモノ", "ウシ", "ヒツジ", 
+      "ヤギ", "シカ", "トナカイ", "ラクダ", "アルパカ", "ブタ", "イノシシ", "イヌ", "オオカミ", "ネコ", 
+      "ワシ", "フクロウ", "ペンギン", "ダチョウ", "フラミンゴ", "アザラシ", "イルカ", "クジラ", "シャチ", "サメ"
+    ];
+    const getRandomAnimalName = () => ANIMAL_NAMES[Math.floor(Math.random() * ANIMAL_NAMES.length)];
 
     const TUTORIAL_SLIDES = [
       { title: "🦠 菌バトル", icon: "🫀", content: "あなたは人体に侵入した「新種の病原菌」だ。他の競合するバクテリア（ライバル派閥）と限られた栄養を奪い合い、宿主の身体を完全に支配すれば勝利となる。\n組織（丸い拠点）にある数字は「菌数」だ。この菌を隣接する組織に浸潤（移動）させて、領土を広げるんだ。" },
@@ -169,7 +179,7 @@
             { id: 1, x: 150, y: 300, owner: 1, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }, 
             { id: 2, x: 750, y: 300, owner: 2, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' },
             { id: 3, x: 450, y: 150, owner: 0, energy: 20, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'muscle', level: 1, mode: 'normal' },
-            { id: 4, x: 450, y: 450, owner: 0, energy: 20, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'epithelium', level: 1, mode: 'normal' }
+            { id: 4, x: 450, y: 450, owner: 0, energy: 20, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'epithelium', level: 1, mode: 'normal' },
           ], 
           edges: [{ s: 1, t: 3, isOneWay: false }, { s: 1, t: 4, isOneWay: false }, { s: 2, t: 3, isOneWay: false }, { s: 2, t: 4, isOneWay: false }, { s: 3, t: 4, isOneWay: false }], 
           playerCount: 2, isTeamBattle: false 
@@ -588,7 +598,6 @@
          });
       }
 
-      // 📝 ★ここが変更点: 環境要因（発熱ダメージ、自然増殖、細胞崩壊）を戦闘・免疫処理の後に移動しました
       const isTrashDay = state.turn === state.nextTrashTurn;
       next.nodes.forEach(node => {
         if (state.weather === 'fever' && node.level === 1 && node.owner !== 0 && node.type !== 'item' && node.type !== 'dump') {
@@ -598,7 +607,6 @@
         if (node.owner !== 0 && node.mode === 'normal' && node.type !== 'item' && node.type !== 'dump') {
           if (!activeSabotages.has(node.id)) {
             let gen = node.generation; if (activeMineBoosts.has(node.id)) gen *= 2;
-            // 戦闘で減ったエネルギーに対して増殖を適用（最大容量を超えないように計算）
             const added = Math.max(0, Math.min(node.maxEnergy - node.energy, gen));
             if (added > 0) { 
                 node.energy += added; 
@@ -712,7 +720,6 @@
 
       const [roomList, setRoomList] = useState([]);
       const [playerName, setPlayerName] = useState('バクテリア');
-      const [roomNameSuffix, setRoomNameSuffix] = useState('の宿主');
       const [isPrivate, setIsPrivate] = useState(false);
       
       const mapContainerRef = useRef(null);
@@ -1232,7 +1239,8 @@
         const peer = new Peer(`kin-battle-${newRoomId}`, peerOptions);
         peerRef.current = peer;
         peer.on('open', (id) => {
-          const fullRoomName = `${playerNameRef.current}${roomNameSuffix}`;
+          // 📝 ★変更点: ホスト作成時の部屋名を「〇〇の体内」に変更
+          const fullRoomName = `${playerNameRef.current}の体内`;
           const initialGameData = { 
             hostUid: myUid, hostName: playerNameRef.current, roomName: fullRoomName,
             status: 'WAITING', playerCount: pCount, isTeamBattle: isTeam, 
@@ -2183,7 +2191,10 @@
                   <h3 className={`${rx('text-lg', 'text-xl')} text-white font-bold`}>単独感染 (ソロ)</h3>
                   <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>宿主の免疫・他菌(AI)と<br/>一人で手軽に争う</p>
                 </button>
-                <button onClick={() => setGameMode('MULTI')} className={`flex-1 bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-[0_0_15px_rgba(220,38,38,0.2)] backdrop-blur flex flex-col items-center hover:bg-slate-900 transition-colors`}>
+                <button onClick={() => {
+                    setPlayerName(getRandomAnimalName());
+                    setGameMode('MULTI');
+                }} className={`flex-1 bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-[0_0_15px_rgba(220,38,38,0.2)] backdrop-blur flex flex-col items-center hover:bg-slate-900 transition-colors`}>
                   <span className={`${rx('text-4xl mb-2', 'text-5xl mb-3')}`}>🌐</span>
                   <h3 className={`${rx('text-lg', 'text-xl')} text-red-400 font-bold`}>複合感染 (マルチ)</h3>
                   <p className={`text-slate-400 ${rx('mt-1 text-[10px]', 'mt-2 text-xs')} text-center`}>公開ルームやIDで<br/>別々のスマホやPCで対戦</p>
@@ -2246,8 +2257,7 @@
                     <div className="bg-black/80 p-4 rounded-xl border border-red-900 shadow-xl backdrop-blur flex flex-col">
                       <h3 className="text-base text-yellow-500 font-bold mb-3">⛺ 新規宿主へ侵入 (ホスト)</h3>
                       <div className="flex gap-2 mb-3">
-                        <input type="text" value={playerName} onChange={e=>setPlayerName(e.target.value)} placeholder="菌株名" className="flex-1 px-2 py-2 rounded bg-slate-900 text-white border border-slate-700 text-sm w-1/2" maxLength={8} />
-                        <input type="text" value={roomNameSuffix} onChange={e=>setRoomNameSuffix(e.target.value)} placeholder="の宿主" className="flex-1 px-2 py-2 rounded bg-slate-900 text-white border border-slate-700 text-sm w-1/2" maxLength={10} />
+                        <input type="text" value={playerName} onChange={e=>setPlayerName(e.target.value)} placeholder="プレイヤー名 (例: ライオン)" className="w-full px-3 py-2 rounded bg-slate-900 text-white border border-slate-700 text-sm font-bold" maxLength={12} />
                       </div>
                       <label className="flex items-center gap-2 text-sm text-slate-300 mb-4 cursor-pointer w-fit">
                         <input type="checkbox" checked={isPrivate} onChange={e=>setIsPrivate(e.target.checked)} className="w-4 h-4 accent-red-600" />
