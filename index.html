@@ -719,6 +719,7 @@
       const tutorialStageRefCurrent = useRef(tutorialStage);
       const latestHostDataRef = useRef(null); 
       const playerNameRef = useRef('バクテリア');
+      const isPrivateRef = useRef(false);
 
       const peerOptions = {
         config: {
@@ -736,6 +737,7 @@
       useEffect(() => { gameModeRefCurrent.current = gameMode; }, [gameMode]);
       useEffect(() => { tutorialStageRefCurrent.current = tutorialStage; }, [tutorialStage]);
       useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
+      useEffect(() => { isPrivateRef.current = isPrivate; }, [isPrivate]);
 
       useEffect(() => {
         if (gameMode === 'HOST' && gameData && roomId && !isPrivate) {
