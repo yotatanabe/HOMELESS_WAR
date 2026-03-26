@@ -716,11 +716,13 @@
       const isPrivateRef = useRef(false);
       const playerNameRef = useRef('バクテリア');
 
+      // ★★★ ここに Twilio の TURN サーバーを追加しました ★★★
       const peerOptions = {
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' }
           ]
         }
       };
@@ -2356,7 +2358,7 @@
             </div>
 
             {gameMode === 'HOST' ? (
-              <button onClick={startGame} className={`px-12 py-5 bg-gradient-to-r from-red-800 to-red-600 hover:from-red-700 hover:to-red-500 text-white font-black ${rx('text-lg', 'text-2xl')} rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.4)] border border-red-500 transition-all hover:-translate-y-1 w-full max-w-md`}>
+              <button onClick={startGame} className={`px-12 py-5 bg-gradient-to-r from-red-800 to-red-600 hover:from-red-700 hover:to-red-500 text-white font-black ${rx('text-lg', 'text-2xl')} rounded-xl shadow-[0_0_20px_rgba(239,68,68,0.4)] border border-red-50 transition-all hover:-translate-y-1 w-full max-w-md`}>
                 感染開始 (空きはAI)
               </button>
             ) : (
@@ -2442,7 +2444,7 @@
 
                     return (
                       <div key={idx} className="relative group">
-                        <button onClick={() => !isDisabled && handleChipSelect(chipId, idx)} disabled={isDisabled && !isSelected} className={`flex items-center gap-1 ${rx('px-1 py-0.5', 'px-2 py-1')} rounded ${rx('text-[10px]', 'text-xs')} border transition-all ${isUsed ? 'bg-slate-800 text-slate-500 border-slate-700' : isSelected ? 'bg-red-800 text-white border-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]' : isDisabled ? 'bg-slate-900 text-slate-600 border-slate-800 opacity-50' : 'bg-slate-900 text-red-300 border-red-900 hover:bg-slate-800'}`}>
+                        <button onClick={() => !isDisabled && handleChipSelect(chipId, idx)} disabled={isDisabled && !isSelected} className={`flex items-center gap-1 ${rx('px-1 py-0.5', 'px-2 py-1')} rounded ${rx('text-[10px]', 'text-xs')} border transition-all ${isUsed ? 'bg-slate-800 text-slate-500 border-slate-700' : isSelected ? 'bg-red-800 text-white border-red-50 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]' : isDisabled ? 'bg-slate-900 text-slate-600 border-slate-800 opacity-50' : 'bg-slate-900 text-red-300 border-red-900 hover:bg-slate-800'}`}>
                           <span>{info.icon}</span>
                           <span className={`${rx('hidden', 'inline')}`}>{info.name}</span>
                         </button>
