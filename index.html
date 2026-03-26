@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>菌バトル (Firebaseロビー版)</title>
+  <title>菌バトル (Firebaseロビー・戦績機能版)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -661,7 +661,15 @@
     };
 
     function NodeWars() {
-      const myUid = useRef(Math.random().toString(36).substring(2, 10)).current;
+      // 📝 ★ここが変更点: LocalStorageを使ってプレイヤーに固有のID（UID）を割り当てる
+      const myUid = useRef((() => {
+        let uid = localStorage.getItem('kin_battle_uid');
+        if (!uid) {
+            uid = 'usr_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+            localStorage.setItem('kin_battle_uid', uid);
+        }
+        return uid;
+      })()).current;
 
       const [gameMode, setGameMode] = useState(null); 
       const [roomId, setRoomId] = useState('');
@@ -670,6 +678,9 @@
       
       const [gameData, setGameData] = useState(null);
       const [myPlayerNum, setMyPlayerNum] = useState(1);
+      
+      // 📝 ★ここが変更点: プレイヤーの戦績データを保存するステート
+      const [playerStats, setPlayerStats] = useState({ wins: 0, losses: 0 });
 
       const [loadedImages, setLoadedImages] = useState({});
       const [phase, setPhase] = useState('SETUP'); 
@@ -738,6 +749,54 @@
       useEffect(() => { tutorialStageRefCurrent.current = tutorialStage; }, [tutorialStage]);
       useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
       useEffect(() => { isPrivateRef.current = isPrivate; }, [isPrivate]);
+
+      // 📝 ★ここが変更点: Firebaseからプレイヤーの戦績データを取得する
+      useEffect(() => {
+        const statsRef = database.ref(`users/${myUid}/stats`);
+        statsRef.on('value', (snapshot) => {
+            if (snapshot.val()) {
+                setPlayerStats({
+                    wins: snapshot.val().wins || 0,
+                    losses: snapshot.val().losses || 0
+                });
+            }
+        });
+        return () => statsRef.off();
+      }, [myUid]);
+
+      // 📝 ★ここが変更点: ゲーム終了時に戦績をFirebaseへ保存する
+      const statsUpdatedRef = useRef(false);
+      useEffect(() => {
+        if (phase === 'GAME_OVER' && gameState && !statsUpdatedRef.current) {
+            statsUpdatedRef.current = true; // 1試合につき1回だけ記録する
+
+            // チュートリアルの場合は記録しない
+            if (gameModeRefCurrent.current === 'TUTORIAL') return;
+
+            // 自分が勝ったかどうかを判定
+            let isWin = false;
+            if (gameState.isTeamBattle) {
+                isWin = gameState.winner === getTeam(myPlayerNum, true);
+            } else {
+                isWin = gameState.winner === myPlayerNum;
+            }
+            const isDraw = gameState.winner === null;
+
+            // 引き分け以外ならFirebaseのデータを更新 (+1)
+            if (!isDraw) {
+                const updates = {};
+                if (isWin) {
+                    updates['wins'] = firebase.database.ServerValue.increment(1);
+                } else {
+                    updates['losses'] = firebase.database.ServerValue.increment(1);
+                }
+                database.ref(`users/${myUid}/stats`).update(updates);
+            }
+        } else if (phase === 'SETUP' || phase === 'INPUT') {
+            // 新しいゲームが始まったらフラグをリセット
+            statsUpdatedRef.current = false;
+        }
+      }, [phase, gameState, myPlayerNum, myUid]);
 
       useEffect(() => {
         if (gameMode === 'HOST' && gameData && roomId && !isPrivate) {
@@ -1051,16 +1110,12 @@
       }, [gameState?.weather]);
 
 
-      // =========================================================
-      // 新しいFirebaseロビー処理
-      // =========================================================
+      // Firebaseの /rooms を監視してロビー一覧を更新する
       useEffect(() => {
-        // Firebaseの /rooms を監視してロビー一覧を更新する
         const roomsRef = database.ref('rooms');
         roomsRef.on('value', (snapshot) => {
           const data = snapshot.val();
           if (data) {
-            // 1分以上更新されていない古い部屋は念のため除外
             const loadedRooms = Object.values(data).filter(r => (Date.now() - r.lastUpdated) < 60000);
             setRoomList(loadedRooms);
           } else {
@@ -1082,7 +1137,6 @@
       useEffect(() => {
         let interval;
         if (gameMode === 'HOST' && latestHostDataRef.current) {
-          // ホスト中は3秒ごとにFirebaseの最終更新時間を更新する（生存アピール）
           interval = setInterval(() => {
             updateFirebaseRoom(latestHostDataRef.current);
           }, 3000);
@@ -1090,7 +1144,6 @@
         return () => clearInterval(interval);
       }, [gameMode]);
 
-      // =========================================================
 
       const setupDataChannel = (conn, isClientSide = false) => {
         connectionsRef.current.push(conn);
@@ -1201,7 +1254,6 @@
           };
           latestHostDataRef.current = roomData;
           
-          // Firebaseに部屋情報を登録し、切断されたら自動で消えるようにする
           if (!isPrivateRef.current) {
             const roomRef = database.ref(`rooms/${newRoomId}`);
             roomRef.set({ ...roomData, lastUpdated: firebase.database.ServerValue.TIMESTAMP });
@@ -1281,10 +1333,19 @@
         return () => cancelAnimationFrame(animationFrameId);
       }, [phase, gameState, playerCommands, uiState, hoveredNode, loadedImages, myPlayerNum, isMobile, mapSize]); 
 
+      const copyToClipboard = (text) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try { document.execCommand('copy'); setCopiedText(true); setTimeout(() => setCopiedText(false), 2000); } 
+        catch (err) { console.error(err); }
+        document.body.removeChild(textArea);
+      };
+
       const quitGame = () => {
         setConfirmQuit(false);
         if (gameModeRefCurrent.current === 'HOST' && roomId) {
-            // Firebaseから部屋を消す
             database.ref(`rooms/${roomId}`).remove();
         }
         if (peerRef.current) peerRef.current.destroy();
@@ -1315,7 +1376,6 @@
       const startGame = () => {
         if (gameMode !== 'HOST' || !gameData) return;
         
-        // 試合開始時にFirebaseのロビーから消す
         database.ref(`rooms/${roomId}`).remove();
         
         const isTeamBattle = gameData.isTeamBattle || false;
@@ -2077,6 +2137,14 @@
                  <span className={`${rx('text-4xl', 'text-6xl')} animate-pulse`}>🦠</span>
                  <h1 className={`${rx('text-5xl', 'text-7xl')} font-black tracking-widest drop-shadow-[0_0_15px_rgba(220,38,38,0.5)] text-red-500 text-center leading-tight`}>菌バトル</h1>
               </div>
+              
+              {/* 📝 ★ここが変更点: タイトル画面に戦績を表示 */}
+              <div className="bg-slate-900/80 border border-slate-700 px-4 py-2 rounded-full mt-3 md:mt-4 shadow-lg flex gap-4 text-sm md:text-base font-bold">
+                  <span className="text-white">プレイヤー戦績:</span>
+                  <span className="text-yellow-400">🏆 {playerStats.wins} 勝</span>
+                  <span className="text-slate-400">💀 {playerStats.losses} 敗</span>
+              </div>
+
             </div>
             
             {!gameMode ? (
