@@ -452,28 +452,6 @@
         }
       });
 
-      const isTrashDay = state.turn === state.nextTrashTurn;
-
-      next.nodes.forEach(node => {
-        if (state.weather === 'fever' && node.level === 1 && node.owner !== 0 && node.type !== 'item' && node.type !== 'dump') {
-           const dmg = Math.min(node.energy, 5);
-           if (dmg > 0) { node.energy -= dmg; animData.weatherDamages.push({ nodeId: node.id, amount: dmg }); }
-        }
-        if (node.owner !== 0 && node.mode === 'normal') {
-          if (!activeSabotages.has(node.id)) {
-            let gen = node.generation; if (activeMineBoosts.has(node.id)) gen *= 2;
-            const added = Math.min(node.maxEnergy - node.energy, gen);
-            node.energy += added; if (added > 0) animData.mines.push({ nodeId: node.id, amount: added });
-          }
-        }
-        if (isTrashDay && node.type === 'dump') {
-           if (node.owner !== 0) {
-             const added = Math.min(node.maxEnergy - node.energy, 80);
-             node.energy += added; if (added > 0) animData.trashBonuses.push({ nodeId: node.id, amount: added });
-           }
-        }
-      });
-
       let inflows = {}; next.nodes.forEach(n => { inflows[n.id] = {}; for(let i=1; i<=state.playerCount; i++) inflows[n.id][i] = 0; });
       let moveRequests = {};
       allCommands.forEach(cmd => { if (cmd.type === 'move') { if (!moveRequests[cmd.nodeId]) moveRequests[cmd.nodeId] = []; moveRequests[cmd.nodeId].push(cmd); } });
@@ -609,6 +587,35 @@
              }
          });
       }
+
+      // 📝 ★ここが変更点: 環境要因（発熱ダメージ、自然増殖、細胞崩壊）を戦闘・免疫処理の後に移動しました
+      const isTrashDay = state.turn === state.nextTrashTurn;
+      next.nodes.forEach(node => {
+        if (state.weather === 'fever' && node.level === 1 && node.owner !== 0 && node.type !== 'item' && node.type !== 'dump') {
+           const dmg = Math.min(node.energy, 5);
+           if (dmg > 0) { node.energy -= dmg; animData.weatherDamages.push({ nodeId: node.id, amount: dmg }); }
+        }
+        if (node.owner !== 0 && node.mode === 'normal' && node.type !== 'item' && node.type !== 'dump') {
+          if (!activeSabotages.has(node.id)) {
+            let gen = node.generation; if (activeMineBoosts.has(node.id)) gen *= 2;
+            // 戦闘で減ったエネルギーに対して増殖を適用（最大容量を超えないように計算）
+            const added = Math.max(0, Math.min(node.maxEnergy - node.energy, gen));
+            if (added > 0) { 
+                node.energy += added; 
+                animData.mines.push({ nodeId: node.id, amount: added }); 
+            }
+          }
+        }
+        if (isTrashDay && node.type === 'dump') {
+           if (node.owner !== 0) {
+             const added = Math.max(0, Math.min(node.maxEnergy - node.energy, 80));
+             if (added > 0) { 
+                 node.energy += added; 
+                 animData.trashBonuses.push({ nodeId: node.id, amount: added }); 
+             }
+           }
+        }
+      });
       
       if (next.turn % 3 === 0) {
          const validTargets = next.nodes.filter(n => n.type !== 'item' && n.type !== 'dump' && n.owner !== 0);
@@ -661,7 +668,6 @@
     };
 
     function NodeWars() {
-      // 📝 ★ここが変更点: LocalStorageを使ってプレイヤーに固有のID（UID）を割り当てる
       const myUid = useRef((() => {
         let uid = localStorage.getItem('kin_battle_uid');
         if (!uid) {
@@ -679,7 +685,6 @@
       const [gameData, setGameData] = useState(null);
       const [myPlayerNum, setMyPlayerNum] = useState(1);
       
-      // 📝 ★ここが変更点: プレイヤーの戦績データを保存するステート
       const [playerStats, setPlayerStats] = useState({ wins: 0, losses: 0 });
 
       const [loadedImages, setLoadedImages] = useState({});
@@ -750,7 +755,6 @@
       useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
       useEffect(() => { isPrivateRef.current = isPrivate; }, [isPrivate]);
 
-      // 📝 ★ここが変更点: Firebaseからプレイヤーの戦績データを取得する
       useEffect(() => {
         const statsRef = database.ref(`users/${myUid}/stats`);
         statsRef.on('value', (snapshot) => {
@@ -764,16 +768,13 @@
         return () => statsRef.off();
       }, [myUid]);
 
-      // 📝 ★ここが変更点: ゲーム終了時に戦績をFirebaseへ保存する
       const statsUpdatedRef = useRef(false);
       useEffect(() => {
         if (phase === 'GAME_OVER' && gameState && !statsUpdatedRef.current) {
-            statsUpdatedRef.current = true; // 1試合につき1回だけ記録する
+            statsUpdatedRef.current = true;
 
-            // チュートリアルの場合は記録しない
             if (gameModeRefCurrent.current === 'TUTORIAL') return;
 
-            // 自分が勝ったかどうかを判定
             let isWin = false;
             if (gameState.isTeamBattle) {
                 isWin = gameState.winner === getTeam(myPlayerNum, true);
@@ -782,7 +783,6 @@
             }
             const isDraw = gameState.winner === null;
 
-            // 引き分け以外ならFirebaseのデータを更新 (+1)
             if (!isDraw) {
                 const updates = {};
                 if (isWin) {
@@ -793,7 +793,6 @@
                 database.ref(`users/${myUid}/stats`).update(updates);
             }
         } else if (phase === 'SETUP' || phase === 'INPUT') {
-            // 新しいゲームが始まったらフラグをリセット
             statsUpdatedRef.current = false;
         }
       }, [phase, gameState, myPlayerNum, myUid]);
@@ -1706,9 +1705,35 @@
           const emoji = node.type === 'item' ? '📦' : (TISSUE_INFO[node.shobaType]?.icon || '🦠');
           ctx.fillText(emoji, node.x, node.y);
 
-          ctx.beginPath(); ctx.arc(node.x + currentR * 0.7, node.y + currentR * 0.7, 14, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); ctx.lineWidth = 2 / s; ctx.strokeStyle = COLORS.players[drawOwner]; ctx.stroke();
+          // 📝 ★変更点: 最大容量のUI表示
+          const badgeX = node.x + currentR * 0.7;
+          const badgeY = node.y + currentR * 0.7;
+          const isMyNode = node.owner === myPlayerNum || (state.isTeamBattle && getTeam(node.owner, true) === getTeam(myPlayerNum, true));
+          const text = isMyNode && node.type !== 'item' ? `${node.energy}/${node.maxEnergy}` : `${node.energy}`;
           
-          ctx.fillStyle = '#ffffff'; ctx.font = `bold ${12/s}px sans-serif`; ctx.fillText(node.energy, node.x + currentR * 0.7, node.y + currentR * 0.7);
+          ctx.font = `bold ${11/s}px sans-serif`;
+          const tw = ctx.measureText(text).width;
+          const bw = Math.max(26/s, tw + 12/s);
+          const bh = 18/s;
+          const r_bg = 9/s;
+          
+          ctx.beginPath();
+          ctx.moveTo(badgeX - bw/2 + r_bg, badgeY - bh/2);
+          ctx.lineTo(badgeX + bw/2 - r_bg, badgeY - bh/2);
+          ctx.quadraticCurveTo(badgeX + bw/2, badgeY - bh/2, badgeX + bw/2, badgeY - bh/2 + r_bg);
+          ctx.lineTo(badgeX + bw/2, badgeY + bh/2 - r_bg);
+          ctx.quadraticCurveTo(badgeX + bw/2, badgeY + bh/2, badgeX + bw/2 - r_bg, badgeY + bh/2);
+          ctx.lineTo(badgeX - bw/2 + r_bg, badgeY + bh/2);
+          ctx.quadraticCurveTo(badgeX - bw/2, badgeY + bh/2, badgeX - bw/2, badgeY + bh/2 - r_bg);
+          ctx.lineTo(badgeX - bw/2, badgeY - bh/2 + r_bg);
+          ctx.quadraticCurveTo(badgeX - bw/2, badgeY - bh/2, badgeX - bw/2 + r_bg, badgeY - bh/2);
+          ctx.closePath();
+
+          ctx.fillStyle = '#0f172a'; ctx.fill(); 
+          ctx.lineWidth = 2 / s; ctx.strokeStyle = COLORS.players[drawOwner] || '#fff'; ctx.stroke();
+          
+          ctx.fillStyle = '#ffffff'; ctx.fillText(text, badgeX, badgeY);
+          // 📝 ★変更終了
 
           if (node.type !== 'dump' && node.type !== 'item') {
               const bx = node.x - currentR * 0.7;
@@ -2138,7 +2163,6 @@
                  <h1 className={`${rx('text-5xl', 'text-7xl')} font-black tracking-widest drop-shadow-[0_0_15px_rgba(220,38,38,0.5)] text-red-500 text-center leading-tight`}>菌バトル</h1>
               </div>
               
-              {/* 📝 ★ここが変更点: タイトル画面に戦績を表示 */}
               <div className="bg-slate-900/80 border border-slate-700 px-4 py-2 rounded-full mt-3 md:mt-4 shadow-lg flex gap-4 text-sm md:text-base font-bold">
                   <span className="text-white">プレイヤー戦績:</span>
                   <span className="text-yellow-400">🏆 {playerStats.wins} 勝</span>
