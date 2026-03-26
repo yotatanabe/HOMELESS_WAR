@@ -399,7 +399,7 @@
       });
 
       next.nodes.forEach(node => {
-        const nodeInflows = inflows[node.id];
+        const nodeInflows = node.id in inflows ? inflows[node.id] : {};
         const originalEnergy = node.energy;
         const originalOwner = node.owner;
         const originalTeam = getTeam(originalOwner, state.isTeamBattle);
@@ -625,9 +625,8 @@
       const gameDataRefCurrent = useRef(gameData);
       const gameModeRefCurrent = useRef(gameMode);
       const tutorialStageRefCurrent = useRef(tutorialStage);
-      const latestHostDataRef = useRef(null); // 追加: ホストデータをクロージャ外で保持
+      const latestHostDataRef = useRef(null); 
 
-      // ★追加: 30分ごとにLOBBY_IDが変わるようにし、古い放置されたゾンビサーバーとの混線を避ける
       const getLobbyId = () => {
         const d = new Date();
         const timeSlot = Math.floor(d.getMinutes() / 30);
@@ -660,7 +659,6 @@
       useEffect(() => { isPrivateRef.current = isPrivate; }, [isPrivate]);
       useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
 
-      // ホスト時の最新データを常にrefに保持する
       useEffect(() => {
         if (gameMode === 'HOST' && gameData && roomId && !isPrivate) {
           latestHostDataRef.current = {
@@ -906,7 +904,9 @@
       const broadcastRooms = () => {
         cleanOldRooms();
         serverConnectionsRef.current.forEach(conn => {
-          if (conn.open) conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current });
+          if (conn && conn.open) {
+            try { conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current }); } catch(e){}
+          }
         });
         setRoomList([...activeRoomsRef.current]);
       };
@@ -926,7 +926,7 @@
             serverConnectionsRef.current.push(conn);
             conn.on('open', () => {
               cleanOldRooms();
-              conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current });
+              try { conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current }); } catch(e){}
             });
             conn.on('data', (data) => {
               if (data.type === 'PING') return;
@@ -964,9 +964,8 @@
               lobbyConnRef.current = conn;
               
               conn.on('open', () => {
-                // ★修正: 最新のホスト情報をクロージャ外のRefから取得して送信する
                 if (latestHostDataRef.current) {
-                  conn.send({ type: 'REGISTER_ROOM', room: latestHostDataRef.current });
+                  try { conn.send({ type: 'REGISTER_ROOM', room: latestHostDataRef.current }); } catch(e){}
                 }
               });
 
@@ -1014,7 +1013,6 @@
         }
       }, [gameMode]);
 
-      // ホスト側のハートビート（定期的に部屋情報を送信）
       useEffect(() => {
         let interval;
         if (gameMode === 'HOST' && latestHostDataRef.current) {
@@ -1027,7 +1025,6 @@
         return () => clearInterval(interval);
       }, [gameMode]);
 
-      // ロビーサーバーのゴースト部屋掃除と定期強制ブロードキャスト
       useEffect(() => {
         let interval;
         if (lobbyState === 'is_server') {
@@ -1039,13 +1036,12 @@
         return () => clearInterval(interval);
       }, [lobbyState]);
 
-      // クライアントのロビー生存確認ピン
       useEffect(() => {
         let interval;
         if ((gameMode === 'MULTI' || gameMode === 'HOST' || gameMode === 'CLIENT') && lobbyState === 'is_client') {
           interval = setInterval(() => {
              if (lobbyConnRef.current && lobbyConnRef.current.open) {
-                 lobbyConnRef.current.send({ type: 'PING' });
+                 try { lobbyConnRef.current.send({ type: 'PING' }); } catch(e){}
              }
           }, 5000);
         }
@@ -1066,16 +1062,18 @@
            }
            broadcastRooms();
         } else if (lobbyStateRef.current === 'is_client' && lobbyConnRef.current?.open) {
-           lobbyConnRef.current.send({ type: action, room: roomData, roomId: roomData?.roomId });
+           try { lobbyConnRef.current.send({ type: action, room: roomData, roomId: roomData?.roomId }); } catch(e){}
         }
       };
 
-      const setupDataChannel = (conn) => {
+      // ★修正: 明示的にクライアントからの初回通信をコントロールする引数を追加
+      const setupDataChannel = (conn, isClientSide = false) => {
         connectionsRef.current.push(conn);
         conn.on('open', () => {
-          if (gameModeRefCurrent.current === 'CLIENT') {
-            setPhase('WAITING_ROOM');
-            sendMessage({ type: 'JOIN_REQ', uid: myUid, name: playerNameRef.current });
+          if (isClientSide) {
+            try {
+              conn.send(JSON.stringify({ type: 'JOIN_REQ', uid: myUid, name: playerNameRef.current }));
+            } catch(e) { console.error('Join req send failed', e); }
           }
         });
         conn.on('data', (data) => {
@@ -1088,9 +1086,12 @@
       };
 
       const sendMessage = (msg) => {
+        const payload = JSON.stringify(msg);
         connectionsRef.current.forEach(conn => {
-          if (conn && conn.open) {
-            conn.send(JSON.stringify(msg));
+          try {
+            conn.send(payload);
+          } catch(err) {
+            console.error('Send message failed', err);
           }
         });
       };
@@ -1108,11 +1109,17 @@
                   playerNames: { ...gData.playerNames, [data.uid]: data.name || `バクテリア${newNum}` },
                   playerUids: [...gData.playerUids, data.uid] 
                 };
+                
+                // ★修正: 非同期更新を待たずにRefメモリを即時上書きして他クライアントとの競合を防ぐ
                 setGameData(newGameData);
+                gameDataRefCurrent.current = newGameData;
+                
+                if (latestHostDataRef.current) {
+                  latestHostDataRef.current.currentPlayers = newGameData.playerUids.length;
+                }
+
                 sendMessage({ type: 'JOIN_ACK', targetUid: data.uid, playerNum: newNum, gameData: newGameData });
                 sendMessage({ type: 'ROOM_UPDATE', gameData: newGameData });
-
-                // updateLobbyRoom('UPDATE_ROOM') は useEffect の setInterval が最新データで行うためここでは不要
               }
             }
           } else if (data.type === 'CMD_SUBMIT') {
@@ -1144,6 +1151,7 @@
             cpuPlayers: [], commands: {}, turnReady: {} 
           };
           setGameData(initialGameData);
+          gameDataRefCurrent.current = initialGameData;
           
           const roomData = {
             roomId: newRoomId,
@@ -1157,7 +1165,7 @@
           latestHostDataRef.current = roomData;
           updateLobbyRoom('REGISTER_ROOM', roomData);
         });
-        peer.on('connection', (conn) => { setupDataChannel(conn); });
+        peer.on('connection', (conn) => { setupDataChannel(conn, false); });
         peer.on('error', (err) => { setErrorMsg('通信サーバーとの接続に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
       };
 
@@ -1165,7 +1173,11 @@
         if (!rid) return;
         setErrorMsg(''); const targetId = rid.toUpperCase(); setRoomId(targetId); setGameMode('CLIENT'); setPhase('WAITING_ROOM'); connectionsRef.current = [];
         const peer = new Peer(peerOptions); peerRef.current = peer;
-        peer.on('open', () => { const conn = peer.connect(`homeless-wars-${targetId}`); setupDataChannel(conn); });
+        peer.on('open', () => { 
+          // ★修正: TCPベースで確実に入室リクエストを届ける
+          const conn = peer.connect(`homeless-wars-${targetId}`, { reliable: true }); 
+          setupDataChannel(conn, true); 
+        });
         peer.on('error', (err) => { setErrorMsg('ルームが見つからないか、通信に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
       };
 
@@ -2083,7 +2095,7 @@
             
             <div className={`bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-xl backdrop-blur w-full max-w-md mb-10`}>
               <h3 className={`${rx('text-base', 'text-lg')} text-slate-300 mb-4 font-bold border-b border-slate-800 pb-2 flex justify-between items-center`}>
-                <span>感染菌株 ({gameData?.playerUids?.length} / {gameData?.playerCount})</span>
+                <span>感染菌株 ({gameData?.playerUids?.length || (gameMode === 'HOST' ? 1 : 0)} / {gameData?.playerCount || '-'})</span>
                 <div className="flex items-center gap-2">
                   {(lobbyState === 'is_server' || lobbyState === 'is_client') && !isPrivate ? (
                     <span className="text-[10px] text-emerald-400">🌐 ロビー公開中</span>
