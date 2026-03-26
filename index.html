@@ -79,9 +79,83 @@
 
     const PLAYABLE_TUTORIALS = [
       {
-        id: 1, title: "STAGE 1: 最初の感染", message: "まずは隣の「上皮組織」に感染してみよう。\n自分の拠点（粘膜細胞）をクリックして【浸潤（輸送）】を選び、隣の拠点をクリックだ。\n送る菌数を決めたら右下の【行動確定】を押せ！\n（ドラッグ＆ドロップでも移動できるぞ）", allowedActions: ['move'],
+        id: 1, title: "STAGE 1: 最初の感染", message: "まずは隣の「上皮組織」に感染してみよう。\n自分の拠点（粘膜細胞）をクリックして【浸潤（輸送）】を選び、隣の拠点をクリックだ。\n送る菌数を決めたら右下の【変異確定】を押せ！\n（ドラッグ＆ドロップでも移動できるぞ）", allowedActions: ['move'],
         setup: () => ({ nodes: [{ id: 1, x: 250, y: 300, owner: 1, energy: 50, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }, { id: 2, x: 650, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'epithelium', level: 1, mode: 'normal' }], edges: [{ s: 1, t: 2, isOneWay: false }], playerCount: 1, isTeamBattle: false }),
         cpuLogic: () => [], checkWin: (state) => state.nodes.find(n => n.id === 2)?.owner === 1
+      },
+      {
+        id: 2, title: "STAGE 2: 増殖強化と防衛", message: "敵が攻めてきている！\n経路を【壁硬化】で1ターン塞ぎつつ、自分の組織を【増殖強化】してレベルを上げよう。\n増殖量が増えれば反撃のチャンスだ。敵を全滅させろ！", allowedActions: ['move', 'upgrade', 'cut'],
+        setup: () => ({ 
+          nodes: [
+            { id: 1, x: 150, y: 300, owner: 1, energy: 40, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }, 
+            { id: 2, x: 450, y: 300, owner: 0, energy: 5, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'epithelium', level: 1, mode: 'normal' },
+            { id: 3, x: 750, y: 300, owner: 2, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }
+          ], 
+          edges: [{ s: 1, t: 2, isOneWay: false }, { s: 2, t: 3, isOneWay: false }], 
+          playerCount: 2, isTeamBattle: false 
+        }),
+        cpuLogic: (state) => {
+          const enemyNode = state.nodes.find(n => n.id === 3);
+          const midNode = state.nodes.find(n => n.id === 2);
+          const cmds = [];
+          if (enemyNode && enemyNode.owner === 2 && enemyNode.energy > 15) {
+             cmds.push({ type: 'move', nodeId: 3, targetId: 2, amount: 15, playerId: 2 });
+          }
+          if (midNode && midNode.owner === 2 && midNode.energy > 10) {
+             cmds.push({ type: 'move', nodeId: 2, targetId: 1, amount: midNode.energy - 5, playerId: 2 });
+          }
+          return cmds;
+        }, 
+        checkWin: (state) => !state.alivePlayers.includes(2) && state.nodes.find(n => n.id === 3)?.owner === 1
+      },
+      {
+        id: 3, title: "STAGE 3: 芽胞化と遠隔移動", message: "隣の組織は強固で突破できない…。\nそんな時は【モード切替】で『血流乗布(芽胞化)』を選ぼう。\n増殖が止まる代わりに、2マス先へ一気に浸潤できるぞ！奥の目標組織を占領しろ！", allowedActions: ['move', 'toggle_mode'],
+        setup: () => ({ 
+          nodes: [
+            { id: 1, x: 150, y: 300, owner: 1, energy: 80, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }, 
+            { id: 2, x: 450, y: 300, owner: 0, energy: 500, maxEnergy: 500, generation: 0, type: 'normal', shobaType: 'muscle', level: 3, mode: 'normal' },
+            { id: 3, x: 750, y: 300, owner: 0, energy: 10, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'epithelium', level: 1, mode: 'normal' }
+          ], 
+          edges: [{ s: 1, t: 2, isOneWay: false }, { s: 2, t: 3, isOneWay: false }], 
+          playerCount: 1, isTeamBattle: false 
+        }),
+        cpuLogic: () => [], 
+        checkWin: (state) => state.nodes.find(n => n.id === 3)?.owner === 1
+      },
+      {
+        id: 4, title: "STAGE 4: 変異遺伝子 (アイテム)", message: "マップの📦に浸潤して壊すと、アイテムを獲得できる。\n敵は【壁硬化】で引きこもっているぞ。アイテム『溶解酵素(EMP)』を獲得し、敵組織を対象に使って壁を突破しろ！", allowedActions: ['move', 'use_chip'],
+        setup: () => ({ 
+          nodes: [
+            { id: 1, x: 150, y: 300, owner: 1, energy: 100, maxEnergy: 150, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }, 
+            { id: 2, x: 450, y: 150, owner: 0, energy: 10, maxEnergy: 10, generation: 0, type: 'item', item: 'EMP', level: 1, mode: 'normal' },
+            { id: 3, x: 650, y: 300, owner: 2, energy: 30, maxEnergy: 100, generation: 5, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }
+          ], 
+          edges: [{ s: 1, t: 2, isOneWay: false }, { s: 1, t: 3, isOneWay: false }, { s: 2, t: 3, isOneWay: false }], 
+          playerCount: 2, isTeamBattle: false 
+        }),
+        cpuLogic: (state) => {
+          const enemyNode = state.nodes.find(n => n.id === 3);
+          if (enemyNode && enemyNode.owner === 2 && enemyNode.energy >= 10) {
+             return [{ type: 'cut', nodeId: 3, targetId: 1, playerId: 2 }];
+          }
+          return [];
+        }, 
+        checkWin: (state) => state.nodes.find(n => n.id === 3)?.owner === 1
+      },
+      {
+        id: 5, title: "STAGE 5: 総合テスト", message: "最後の試練だ！敵性菌株を完全に排除しろ。\nこのステージでは『マクロファージ』が3ターンごとに襲来する。\n赤く波打つ組織からは逃げるか耐えるか選べ！生体反応の変化にも注意だ。", allowedActions: ['move', 'toggle_mode', 'upgrade', 'cut', 'use_chip'],
+        setup: () => ({ 
+          nodes: [
+            { id: 1, x: 150, y: 300, owner: 1, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' }, 
+            { id: 2, x: 750, y: 300, owner: 2, energy: 60, maxEnergy: 100, generation: 10, type: 'base', shobaType: 'mucosa', level: 1, mode: 'normal' },
+            { id: 3, x: 450, y: 150, owner: 0, energy: 20, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'muscle', level: 1, mode: 'normal' },
+            { id: 4, x: 450, y: 450, owner: 0, energy: 20, maxEnergy: 50, generation: 5, type: 'normal', shobaType: 'epithelium', level: 1, mode: 'normal' }
+          ], 
+          edges: [{ s: 1, t: 3, isOneWay: false }, { s: 1, t: 4, isOneWay: false }, { s: 2, t: 3, isOneWay: false }, { s: 2, t: 4, isOneWay: false }, { s: 3, t: 4, isOneWay: false }], 
+          playerCount: 2, isTeamBattle: false 
+        }),
+        cpuLogic: (state) => generateCpuCommands(state, [2]), 
+        checkWin: (state) => !state.alivePlayers.includes(2)
       }
     ];
 
@@ -1883,77 +1957,135 @@
         if (isMobile) {
           return (
             <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800/95 backdrop-blur border border-slate-500 rounded-xl p-2 flex gap-2 shadow-[0_10px_25px_rgba(0,0,0,0.8)] z-50 w-[95%] max-w-sm justify-between">
-              <button onClick={() => {
-                  if (selectedChip?.id === 'STEALTH') {
-                    if (!playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === node.id)) addCommand({ type: 'use_chip', chip: 'STEALTH', playerId: myPlayerNum, chipIdx: selectedChip.idx, targetId: node.id });
-                    setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' }); setSelectedChip(null);
-                  } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
-                }}
-                disabled={!isMoveAllowed || availableEnergy <= 0}
-                className={`flex-1 h-14 flex flex-col items-center justify-center rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!safeActions.includes('move') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-lg">➡️</span>
-                <span className="text-[9px] mt-1 text-center leading-tight">浸潤<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : ''}</span>
-              </button>
-              <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
-                disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
-                className={`flex-1 h-14 flex flex-col items-center justify-center rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-lg">〰️</span>
-                {node.mode === 'long_range' ? <span className="text-[9px] mt-1 text-center leading-tight">定着</span> : <span className="text-[9px] mt-1 text-center leading-tight">血流乗布</span>}
-              </button>
-              <button onClick={() => { if (node.energy >= node.level * 10 && node.level < 4) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
-                disabled={!isOthersAllowed || node.energy < node.level * 10 || node.level >= 4 || !safeActions.includes('upgrade')} 
-                className={`flex-1 h-14 flex flex-col items-center justify-center rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('upgrade') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-lg">📈</span>
-                <span className="text-[9px] mt-1 text-center leading-tight">増殖強化<br/>(-{node.level < 4 ? node.level * 10 : 'MAX'})</span>
-              </button>
-              <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
-                disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
-                className={`flex-1 h-14 flex flex-col items-center justify-center rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('cut') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-lg">✂️</span>
-                <span className="text-[9px] mt-1 text-center leading-tight">壁硬化<br/>(-10)</span>
-              </button>
+              
+              <div tabIndex="0" className={`flex-1 h-14 relative group outline-none ${!safeActions.includes('move') ? 'hidden' : 'block'}`}>
+                <button onClick={() => {
+                    if (selectedChip?.id === 'STEALTH') {
+                      if (!playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === node.id)) addCommand({ type: 'use_chip', chip: 'STEALTH', playerId: myPlayerNum, chipIdx: selectedChip.idx, targetId: node.id });
+                      setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' }); setSelectedChip(null);
+                    } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
+                  }}
+                  disabled={!isMoveAllowed || availableEnergy <= 0}
+                  className={`w-full h-full flex flex-col items-center justify-center rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed`}
+                >
+                  <span className="text-lg">➡️</span>
+                  <span className="text-[9px] mt-1 text-center leading-tight">浸潤<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : ''}</span>
+                </button>
+                <div className="absolute bottom-full mb-2 left-0 w-44 p-2 bg-slate-900/95 border border-slate-600 text-slate-200 text-[10px] leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">➡️ 浸潤 (輸送/攻撃)</strong>
+                  隣接組織へ菌を送る。<br/>ドラッグで複数指定し分散可能。
+                </div>
+              </div>
+
+              <div tabIndex="0" className={`flex-1 h-14 relative group outline-none ${!safeActions.includes('toggle_mode') ? 'hidden' : 'block'}`}>
+                <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
+                  disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
+                  className={`w-full h-full flex flex-col items-center justify-center rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors`}
+                >
+                  <span className="text-lg">〰️</span>
+                  {node.mode === 'long_range' ? <span className="text-[9px] mt-1 text-center leading-tight">定着</span> : <span className="text-[9px] mt-1 text-center leading-tight">血流乗布</span>}
+                </button>
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-44 p-2 bg-slate-900/95 border border-slate-600 text-slate-200 text-[10px] leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">〰️ モード切替</strong>
+                  【血流】増殖停止＆2マス先へ移動可。<br/>【定着】遠隔不可だが自動増殖再開。
+                </div>
+              </div>
+
+              <div tabIndex="0" className={`flex-1 h-14 relative group outline-none ${!safeActions.includes('upgrade') ? 'hidden' : 'block'}`}>
+                <button onClick={() => { if (node.energy >= node.level * 10 && node.level < 4) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
+                  disabled={!isOthersAllowed || node.energy < node.level * 10 || node.level >= 4 || !safeActions.includes('upgrade')} 
+                  className={`w-full h-full flex flex-col items-center justify-center rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors`}
+                >
+                  <span className="text-lg">📈</span>
+                  <span className="text-[9px] mt-1 text-center leading-tight">増殖強化<br/>(-{node.level < 4 ? node.level * 10 : 'MAX'})</span>
+                </button>
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-44 p-2 bg-slate-900/95 border border-slate-600 text-slate-200 text-[10px] leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">📈 増殖強化</strong>
+                  最大容量と増殖量がアップし、遠隔移動時の血流ロスも軽減される。
+                </div>
+              </div>
+
+              <div tabIndex="0" className={`flex-1 h-14 relative group outline-none ${!safeActions.includes('cut') ? 'hidden' : 'block'}`}>
+                <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
+                  disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
+                  className={`w-full h-full flex flex-col items-center justify-center rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors`}
+                >
+                  <span className="text-lg">✂️</span>
+                  <span className="text-[9px] mt-1 text-center leading-tight">壁硬化<br/>(-10)</span>
+                </button>
+                <div className="absolute bottom-full mb-2 right-0 w-44 p-2 bg-slate-900/95 border border-slate-600 text-slate-200 text-[10px] leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">✂️ 壁硬化 (経路遮断)</strong>
+                  指定した隣接組織からの経路を1ターン完全に塞ぐ。
+                </div>
+              </div>
+
             </div>
           );
         } else {
           return (
             <div className="absolute transform -translate-x-1/2 bg-slate-800/95 backdrop-blur border border-slate-500 rounded-lg p-2 flex gap-2 shadow-2xl z-20 w-auto" style={{ left: `${leftPos}px`, top: `${topPos}px` }}>
-              <button onClick={() => {
-                  if (selectedChip?.id === 'STEALTH') {
-                    if (!playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === node.id)) addCommand({ type: 'use_chip', chip: 'STEALTH', playerId: myPlayerNum, chipIdx: selectedChip.idx, targetId: node.id });
-                    setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' }); setSelectedChip(null);
-                  } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
-                }}
-                disabled={!isMoveAllowed || availableEnergy <= 0}
-                className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed ${!safeActions.includes('move') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-xl">➡️</span>
-                <span className="text-[10px] mt-1 text-center leading-tight">浸潤<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
-              </button>
-              <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
-                disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
-                className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('toggle_mode') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-xl">〰️</span>
-                {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">定着<br/>(増殖)</span> : <span className="text-[10px] mt-1 text-center leading-tight">血流乗布<br/>(芽胞化)</span>}
-              </button>
-              <button onClick={() => { if (node.energy >= node.level * 10 && node.level < 4) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
-                disabled={!isOthersAllowed || node.energy < node.level * 10 || node.level >= 4 || !safeActions.includes('upgrade')} 
-                className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('upgrade') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-xl">📈</span>
-                <span className="text-[10px] mt-1 text-center leading-tight">増殖強化<br/>({node.level < 4 ? `-${node.level * 10}菌` : 'MAX'})</span>
-              </button>
-              <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
-                disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
-                className={`flex-none w-16 h-16 flex flex-col items-center justify-center rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors ${!safeActions.includes('cut') ? 'hidden' : 'flex'}`}
-              >
-                <span className="text-xl">✂️</span>
-                <span className="text-[10px] mt-1 text-center leading-tight">壁硬化<br/>(-10菌)</span>
-              </button>
+              
+              <div tabIndex="0" className={`flex-none w-16 h-16 relative group outline-none ${!safeActions.includes('move') ? 'hidden' : 'block'}`}>
+                <button onClick={() => {
+                    if (selectedChip?.id === 'STEALTH') {
+                      if (!playerCommands.some(c => c.type === 'use_chip' && c.chip === 'STEALTH' && c.targetId === node.id)) addCommand({ type: 'use_chip', chip: 'STEALTH', playerId: myPlayerNum, chipIdx: selectedChip.idx, targetId: node.id });
+                      setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' }); setSelectedChip(null);
+                    } else setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'move' });
+                  }}
+                  disabled={!isMoveAllowed || availableEnergy <= 0}
+                  className={`w-full h-full flex flex-col items-center justify-center rounded transition-colors ${selectedChip?.id==='STEALTH' ? 'bg-indigo-600/50 text-indigo-300' : 'bg-sky-600/20 hover:bg-sky-500/40 text-sky-400'} disabled:opacity-30 disabled:cursor-not-allowed`}
+                >
+                  <span className="text-xl">➡️</span>
+                  <span className="text-[10px] mt-1 text-center leading-tight">浸潤<br/>{selectedChip?.id === 'STEALTH' ? '(隠密)' : '(分散可)'}</span>
+                </button>
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-48 p-2.5 bg-slate-900/95 border border-slate-600 text-slate-200 text-xs leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">➡️ 浸潤 (輸送/攻撃)</strong>
+                  隣接組織へ菌を送る。<br/>ドラッグで複数指定し均等分散。
+                </div>
+              </div>
+
+              <div tabIndex="0" className={`flex-none w-16 h-16 relative group outline-none ${!safeActions.includes('toggle_mode') ? 'hidden' : 'block'}`}>
+                <button onClick={() => addCommand({ type: 'toggle_mode', nodeId: node.id, playerId: myPlayerNum })} 
+                  disabled={!isOthersAllowed || !safeActions.includes('toggle_mode')} 
+                  className={`w-full h-full flex flex-col items-center justify-center rounded bg-purple-600/20 hover:bg-purple-500/40 text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors`}
+                >
+                  <span className="text-xl">〰️</span>
+                  {node.mode === 'long_range' ? <span className="text-[10px] mt-1 text-center leading-tight">定着<br/>(増殖)</span> : <span className="text-[10px] mt-1 text-center leading-tight">血流乗布<br/>(芽胞化)</span>}
+                </button>
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-48 p-2.5 bg-slate-900/95 border border-slate-600 text-slate-200 text-xs leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">〰️ モード切替</strong>
+                  【血流】増殖停止＆2マス先へ移動可。<br/>【定着】遠隔不可だが自動増殖再開。
+                </div>
+              </div>
+
+              <div tabIndex="0" className={`flex-none w-16 h-16 relative group outline-none ${!safeActions.includes('upgrade') ? 'hidden' : 'block'}`}>
+                <button onClick={() => { if (node.energy >= node.level * 10 && node.level < 4) addCommand({ type: 'upgrade', nodeId: node.id, playerId: myPlayerNum }); }} 
+                  disabled={!isOthersAllowed || node.energy < node.level * 10 || node.level >= 4 || !safeActions.includes('upgrade')} 
+                  className={`w-full h-full flex flex-col items-center justify-center rounded bg-emerald-600/20 hover:bg-emerald-500/40 text-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors`}
+                >
+                  <span className="text-xl">📈</span>
+                  <span className="text-[10px] mt-1 text-center leading-tight">増殖強化<br/>({node.level < 4 ? `-${node.level * 10}菌` : 'MAX'})</span>
+                </button>
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-48 p-2.5 bg-slate-900/95 border border-slate-600 text-slate-200 text-xs leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">📈 増殖強化</strong>
+                  最大容量と増殖量がアップし、遠隔移動時の血流ロスも軽減される。
+                </div>
+              </div>
+
+              <div tabIndex="0" className={`flex-none w-16 h-16 relative group outline-none ${!safeActions.includes('cut') ? 'hidden' : 'block'}`}>
+                <button onClick={() => setUiState({ mode: 'SELECTING_TARGET', nodeId: node.id, actionType: 'cut' })} 
+                  disabled={!isOthersAllowed || node.energy < 10 || !safeActions.includes('cut')} 
+                  className={`w-full h-full flex flex-col items-center justify-center rounded bg-red-600/20 hover:bg-red-500/40 text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors`}
+                >
+                  <span className="text-xl">✂️</span>
+                  <span className="text-[10px] mt-1 text-center leading-tight">壁硬化<br/>(-10菌)</span>
+                </button>
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-48 p-2.5 bg-slate-900/95 border border-slate-600 text-slate-200 text-xs leading-relaxed rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 pointer-events-none transition-opacity z-50 text-left normal-case tracking-normal font-normal">
+                  <strong className="block text-white mb-1">✂️ 壁硬化 (経路遮断)</strong>
+                  指定した隣接組織からの経路を1ターン完全に塞ぐ。
+                </div>
+              </div>
+
             </div>
           );
         }
