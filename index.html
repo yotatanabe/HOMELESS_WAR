@@ -1066,14 +1066,12 @@
         }
       };
 
-      // ★修正: 明示的にクライアントからの初回通信をコントロールする引数を追加
+      // ★修正: JSON.stringify を除去し、PeerJS標準のオブジェクト送信に任せる
       const setupDataChannel = (conn, isClientSide = false) => {
         connectionsRef.current.push(conn);
         conn.on('open', () => {
           if (isClientSide) {
-            try {
-              conn.send(JSON.stringify({ type: 'JOIN_REQ', uid: myUid, name: playerNameRef.current }));
-            } catch(e) { console.error('Join req send failed', e); }
+            sendMessage({ type: 'JOIN_REQ', uid: myUid, name: playerNameRef.current });
           }
         });
         conn.on('data', (data) => {
@@ -1086,22 +1084,40 @@
       };
 
       const sendMessage = (msg) => {
-        const payload = JSON.stringify(msg);
         connectionsRef.current.forEach(conn => {
-          try {
-            conn.send(payload);
-          } catch(err) {
-            console.error('Send message failed', err);
+          if (conn && conn.open) {
+            try {
+              conn.send(msg);
+            } catch(err) {
+              console.error('Send message failed', err);
+            }
           }
         });
       };
+
+      // ★修正: 繋がるまでクライアントが1秒おきに入室リクエストを送り続ける（執念の合流処理）
+      useEffect(() => {
+        let interval;
+        if (gameMode === 'CLIENT' && phase === 'WAITING_ROOM' && !gameData) {
+          interval = setInterval(() => {
+             sendMessage({ type: 'JOIN_REQ', uid: myUid, name: playerNameRef.current });
+          }, 1000);
+        }
+        return () => clearInterval(interval);
+      }, [gameMode, phase, gameData]);
+
 
       const handleNetworkMessage = (data) => {
         const gMode = gameModeRefCurrent.current, currentPhase = phaseRefCurrent.current, gData = gameDataRefCurrent.current;
         if (gMode === 'HOST') {
           if (data.type === 'JOIN_REQ') {
-            if (currentPhase === 'WAITING_ROOM' && gData && gData.playerUids.length < gData.playerCount) {
-              if (!gData.playerUids.includes(data.uid)) {
+            if (currentPhase === 'WAITING_ROOM' && gData) {
+              if (gData.playerUids.includes(data.uid)) {
+                // すでに登録済みなら再送してあげる
+                sendMessage({ type: 'JOIN_ACK', targetUid: data.uid, playerNum: gData.players[data.uid], gameData: gData });
+                sendMessage({ type: 'ROOM_UPDATE', gameData: gData });
+              } else if (gData.playerUids.length < gData.playerCount) {
+                // 新規登録
                 const newNum = gData.playerUids.length + 1;
                 const newGameData = { 
                   ...gData, 
@@ -1110,13 +1126,10 @@
                   playerUids: [...gData.playerUids, data.uid] 
                 };
                 
-                // ★修正: 非同期更新を待たずにRefメモリを即時上書きして他クライアントとの競合を防ぐ
+                // ★修正: 非同期を待たずメモリを直接上書きし、連続アクセスによる定員オーバーを防ぐ
                 setGameData(newGameData);
                 gameDataRefCurrent.current = newGameData;
-                
-                if (latestHostDataRef.current) {
-                  latestHostDataRef.current.currentPlayers = newGameData.playerUids.length;
-                }
+                if (latestHostDataRef.current) latestHostDataRef.current.currentPlayers = newGameData.playerUids.length;
 
                 sendMessage({ type: 'JOIN_ACK', targetUid: data.uid, playerNum: newNum, gameData: newGameData });
                 sendMessage({ type: 'ROOM_UPDATE', gameData: newGameData });
@@ -1174,8 +1187,8 @@
         setErrorMsg(''); const targetId = rid.toUpperCase(); setRoomId(targetId); setGameMode('CLIENT'); setPhase('WAITING_ROOM'); connectionsRef.current = [];
         const peer = new Peer(peerOptions); peerRef.current = peer;
         peer.on('open', () => { 
-          // ★修正: TCPベースで確実に入室リクエストを届ける
-          const conn = peer.connect(`homeless-wars-${targetId}`, { reliable: true }); 
+          // ★修正: TCPオプションを削除して互換性を高める
+          const conn = peer.connect(`homeless-wars-${targetId}`); 
           setupDataChannel(conn, true); 
         });
         peer.on('error', (err) => { setErrorMsg('ルームが見つからないか、通信に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
