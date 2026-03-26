@@ -47,6 +47,7 @@
       tachycardia: 'url("https://images.unsplash.com/photo-1557672172-298e090bd0f1?auto=format&fit=crop&q=80&w=900&h=600")'
     };
 
+    const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
     const ASSETS = {};
 
     const CHIP_TYPES = {
@@ -102,7 +103,7 @@
     };
 
     const generateWeather = () => { const r = Math.random(); if (r < 0.2) return 'tachycardia'; if (r < 0.4) return 'fever'; return 'normal'; };
-    const getWeatherName = (weather) => { if (weather === 'tachycardia') return '頻脈 (血流移動ロス増大)'; if (weather === 'fever') return '発熱 (Lv1組織がダメージ)'; return '平熱 (安定)'; };
+    const getWeatherName = (weather) => { if (weather === 'tachycardia') return '頻脈 (血流ロス増大)'; if (weather === 'fever') return '発熱 (Lv1組織ダメージ)'; return '平熱 (安定)'; };
     const renderWeatherIcon = (weather, sizeClass='w-6 h-6') => {
       if (weather === 'tachycardia') return <span className={`${sizeClass} flex items-center justify-center text-yellow-400 drop-shadow-md text-xl`}>💓</span>; 
       if (weather === 'fever') return <span className={`${sizeClass} flex items-center justify-center text-red-500 drop-shadow-md text-xl`}>🔥</span>; 
@@ -624,8 +625,16 @@
       const gameDataRefCurrent = useRef(gameData);
       const gameModeRefCurrent = useRef(gameMode);
       const tutorialStageRefCurrent = useRef(tutorialStage);
+      const latestHostDataRef = useRef(null); // 追加: ホストデータをクロージャ外で保持
 
-      const LOBBY_ID = "kin-battle-lobby-shared-001";
+      // ★追加: 30分ごとにLOBBY_IDが変わるようにし、古い放置されたゾンビサーバーとの混線を避ける
+      const getLobbyId = () => {
+        const d = new Date();
+        const timeSlot = Math.floor(d.getMinutes() / 30);
+        return `kin-battle-lobby-v6-${d.getFullYear()}${d.getMonth()}${d.getDate()}${d.getHours()}-${timeSlot}`;
+      };
+      const lobbyIdRef = useRef(getLobbyId());
+
       const lobbyStateRef = useRef('disconnected');
       const lobbyPeerRef = useRef(null);
       const lobbyConnRef = useRef(null);
@@ -650,6 +659,24 @@
       useEffect(() => { tutorialStageRefCurrent.current = tutorialStage; }, [tutorialStage]);
       useEffect(() => { isPrivateRef.current = isPrivate; }, [isPrivate]);
       useEffect(() => { playerNameRef.current = playerName; }, [playerName]);
+
+      // ホスト時の最新データを常にrefに保持する
+      useEffect(() => {
+        if (gameMode === 'HOST' && gameData && roomId && !isPrivate) {
+          latestHostDataRef.current = {
+            roomId: roomId,
+            roomName: gameData.roomName,
+            hostName: gameData.hostName,
+            playerCount: gameData.playerCount,
+            currentPlayers: gameData.playerUids.length,
+            isTeamBattle: gameData.isTeamBattle,
+            status: gameData.status
+          };
+        } else {
+          latestHostDataRef.current = null;
+        }
+      }, [gameMode, gameData, roomId, isPrivate]);
+
 
       useEffect(() => {
         const handleResize = () => setWindowWidth(window.innerWidth);
@@ -887,6 +914,7 @@
       const initLobby = () => {
         setLobbyState('initializing');
         lobbyStateRef.current = 'initializing';
+        const LOBBY_ID = lobbyIdRef.current;
         const peer = new Peer(LOBBY_ID, peerOptions);
         
         peer.on('open', () => {
@@ -901,6 +929,7 @@
               conn.send({ type: 'ROOM_LIST', rooms: activeRoomsRef.current });
             });
             conn.on('data', (data) => {
+              if (data.type === 'PING') return;
               if (data.type === 'REGISTER_ROOM' || data.type === 'UPDATE_ROOM') {
                 conn.hostedRoomId = data.room.roomId; 
                 data.room.lastUpdated = Date.now();
@@ -934,6 +963,13 @@
               const conn = clientPeer.connect(LOBBY_ID, { reliable: true });
               lobbyConnRef.current = conn;
               
+              conn.on('open', () => {
+                // ★修正: 最新のホスト情報をクロージャ外のRefから取得して送信する
+                if (latestHostDataRef.current) {
+                  conn.send({ type: 'REGISTER_ROOM', room: latestHostDataRef.current });
+                }
+              });
+
               conn.on('data', (data) => {
                 if (data.type === 'ROOM_LIST') {
                   setRoomList(data.rooms);
@@ -944,14 +980,14 @@
                 setLobbyState('disconnected');
                 lobbyStateRef.current = 'disconnected';
                 setTimeout(() => {
-                   if (gameModeRefCurrent.current === 'MULTI') initLobby();
+                   if (gameModeRefCurrent.current === 'MULTI' || gameModeRefCurrent.current === 'HOST' || gameModeRefCurrent.current === 'CLIENT') initLobby();
                 }, 1000 + Math.random() * 2000);
               });
               conn.on('error', () => {});
             });
           } else {
              setTimeout(() => {
-                if (gameModeRefCurrent.current === 'MULTI') initLobby();
+                if (gameModeRefCurrent.current === 'MULTI' || gameModeRefCurrent.current === 'HOST' || gameModeRefCurrent.current === 'CLIENT') initLobby();
              }, 3000);
           }
         });
@@ -970,9 +1006,10 @@
       };
 
       useEffect(() => {
-        if (gameMode === 'MULTI' && lobbyStateRef.current === 'disconnected') {
+        const isMultiplayer = gameMode === 'MULTI' || gameMode === 'HOST' || gameMode === 'CLIENT';
+        if (isMultiplayer && lobbyStateRef.current === 'disconnected') {
            initLobby();
-        } else if (gameMode !== 'MULTI' && lobbyStateRef.current !== 'disconnected') {
+        } else if (!isMultiplayer && lobbyStateRef.current !== 'disconnected') {
            closeLobby();
         }
       }, [gameMode]);
@@ -980,36 +1017,40 @@
       // ホスト側のハートビート（定期的に部屋情報を送信）
       useEffect(() => {
         let interval;
-        if (gameMode === 'HOST' && gameData && roomId && !isPrivate) {
+        if (gameMode === 'HOST' && latestHostDataRef.current) {
           interval = setInterval(() => {
-            updateLobbyRoom('UPDATE_ROOM', {
-              roomId: roomId,
-              roomName: gameData.roomName,
-              hostName: gameData.hostName,
-              playerCount: gameData.playerCount,
-              currentPlayers: gameData.playerUids.length,
-              isTeamBattle: gameData.isTeamBattle,
-              status: gameData.status
-            });
+            if (latestHostDataRef.current) {
+              updateLobbyRoom('UPDATE_ROOM', latestHostDataRef.current);
+            }
           }, 3000);
         }
         return () => clearInterval(interval);
-      }, [gameMode, gameData, roomId, isPrivate]);
+      }, [gameMode]);
 
-      // ロビーサーバーのゴースト部屋掃除
+      // ロビーサーバーのゴースト部屋掃除と定期強制ブロードキャスト
       useEffect(() => {
         let interval;
         if (lobbyState === 'is_server') {
           interval = setInterval(() => {
-             const before = activeRoomsRef.current.length;
              cleanOldRooms();
-             if (before !== activeRoomsRef.current.length) {
-                broadcastRooms();
-             }
+             broadcastRooms();
           }, 5000);
         }
         return () => clearInterval(interval);
       }, [lobbyState]);
+
+      // クライアントのロビー生存確認ピン
+      useEffect(() => {
+        let interval;
+        if ((gameMode === 'MULTI' || gameMode === 'HOST' || gameMode === 'CLIENT') && lobbyState === 'is_client') {
+          interval = setInterval(() => {
+             if (lobbyConnRef.current && lobbyConnRef.current.open) {
+                 lobbyConnRef.current.send({ type: 'PING' });
+             }
+          }, 5000);
+        }
+        return () => clearInterval(interval);
+      }, [gameMode, lobbyState]);
 
       const updateLobbyRoom = (action, roomData) => {
         if (isPrivateRef.current && action !== 'UNREGISTER_ROOM') return; 
@@ -1071,15 +1112,7 @@
                 sendMessage({ type: 'JOIN_ACK', targetUid: data.uid, playerNum: newNum, gameData: newGameData });
                 sendMessage({ type: 'ROOM_UPDATE', gameData: newGameData });
 
-                updateLobbyRoom('UPDATE_ROOM', {
-                  roomId: roomId,
-                  roomName: newGameData.roomName,
-                  hostName: newGameData.hostName,
-                  playerCount: newGameData.playerCount,
-                  currentPlayers: newGameData.playerUids.length,
-                  isTeamBattle: newGameData.isTeamBattle,
-                  status: newGameData.playerUids.length >= newGameData.playerCount ? 'PLAYING' : 'WAITING'
-                });
+                // updateLobbyRoom('UPDATE_ROOM') は useEffect の setInterval が最新データで行うためここでは不要
               }
             }
           } else if (data.type === 'CMD_SUBMIT') {
@@ -1112,7 +1145,7 @@
           };
           setGameData(initialGameData);
           
-          updateLobbyRoom('REGISTER_ROOM', {
+          const roomData = {
             roomId: newRoomId,
             roomName: fullRoomName,
             hostName: playerNameRef.current,
@@ -1120,7 +1153,9 @@
             currentPlayers: 1,
             isTeamBattle: isTeam,
             status: 'WAITING'
-          });
+          };
+          latestHostDataRef.current = roomData;
+          updateLobbyRoom('REGISTER_ROOM', roomData);
         });
         peer.on('connection', (conn) => { setupDataChannel(conn); });
         peer.on('error', (err) => { setErrorMsg('通信サーバーとの接続に失敗しました。'); setGameMode('MULTI'); setPhase('SETUP'); console.error(err); });
@@ -1154,7 +1189,7 @@
         setPhase('ANIMATING');
         animRef.current = { active: true, progress: 0, data: animData };
         const startTime = performance.now();
-        const duration = 6500; // 修正: テンポアップのため7500msから6500msへ短縮
+        const duration = 6500; 
         const animate = (time) => {
           let p = Math.min((time - startTime) / duration, 1.0);
           animRef.current.progress = p;
@@ -1244,19 +1279,8 @@
         const newGameData = { ...gameData, cpuPlayers, status: 'PLAYING' };
         setGameData(newGameData); setGameState(initialState); setPhase('INPUT'); initializedCamera.current = false;
         sendMessage({ type: 'GAME_START', state: initialState, gameData: newGameData });
-        
-        updateLobbyRoom('UPDATE_ROOM', {
-          roomId: roomId,
-          roomName: gameData.roomName,
-          hostName: gameData.hostName,
-          playerCount: gameData.playerCount,
-          currentPlayers: gameData.playerUids.length,
-          isTeamBattle: gameData.isTeamBattle,
-          status: 'PLAYING'
-        });
       };
 
-      // 修正: APIキーをUI（プロンプト）で入力・保存する仕様に変更
       const handleAiAdvice = async () => {
         if (!gameState) return;
         
@@ -1440,7 +1464,7 @@
         if (bgImageRef.current && bgImageRef.current.complete) {
           ctx.drawImage(bgImageRef.current, 0, 0, MAP_W, MAP_H);
         } else {
-          ctx.fillStyle = '#1e0000'; // 生体内っぽい暗い赤
+          ctx.fillStyle = '#1e0000'; 
           ctx.fillRect(0, 0, MAP_W, MAP_H);
         }
         ctx.fillStyle = 'rgba(30, 0, 0, 0.7)';
@@ -1530,7 +1554,6 @@
           }
           const r = node.shobaType && TISSUE_INFO[node.shobaType] ? TISSUE_INFO[node.shobaType].radius : 25;
 
-          // 脈打ちエフェクト
           const pulse = 1 + Math.sin(time / 200 + node.id) * 0.05;
           const currentR = r * (node.mode === 'normal' ? pulse : 1);
 
@@ -1550,7 +1573,6 @@
 
           if (node.mode === 'long_range') { ctx.beginPath(); ctx.arc(node.x, node.y, currentR + 7, 0, Math.PI * 2); ctx.strokeStyle = COLORS.long_range; ctx.lineWidth = 2 / cameraRef.current.scale; ctx.setLineDash([5 / cameraRef.current.scale, 5 / cameraRef.current.scale]); ctx.stroke(); ctx.setLineDash([]); }
 
-          // マクロファージのターゲットエフェクト
           if (state.immuneTargets && state.immuneTargets.includes(node.id) && (currentPhase === 'INPUT' || currentPhase === 'WAITING_FOR_OTHERS')) {
              ctx.beginPath(); ctx.arc(node.x, node.y, currentR + 15, 0, Math.PI * 2);
              ctx.fillStyle = `rgba(239, 68, 68, ${0.2 + Math.abs(Math.sin(time / 150)) * 0.3})`;
@@ -1973,12 +1995,18 @@
                       <span>🌐 感染中宿主一覧 (ロビー)</span>
                       <div className="flex items-center gap-2">
                         {lobbyState === 'initializing' && <span className="text-xs text-slate-400 animate-pulse">探索中...</span>}
+                        {lobbyState === 'is_server' && <span className="text-xs text-emerald-400">親機稼働中</span>}
+                        {lobbyState === 'is_client' && <span className="text-xs text-sky-400">接続済</span>}
+                        {lobbyState === 'disconnected' && <span className="text-xs text-red-500">切断・再接続中</span>}
                         <button onClick={() => { closeLobby(); setTimeout(initLobby, 500); }} className="text-xs bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded text-slate-300 border border-slate-600 transition-colors">🔄 更新</button>
                       </div>
                     </h3>
                     <div className="flex-1 overflow-y-auto space-y-2 pr-2">
                       {roomList.filter(r => r.status === 'WAITING').length === 0 ? (
-                        <p className="text-slate-500 text-sm text-center mt-10">現在感染できる公開宿主はありません。</p>
+                        <div className="text-center mt-10">
+                          <p className="text-slate-500 text-sm mb-2">現在感染できる公開宿主はありません。</p>
+                          <p className="text-yellow-500/70 text-[10px] md:text-xs">※部屋が表示されない場合は、右の「IDで侵入」から<br/>直接ホストのIDを入力して合流してください。</p>
+                        </div>
                       ) : (
                         roomList.filter(r => r.status === 'WAITING').map((r, idx) => (
                           <div key={idx} className="bg-slate-900/80 p-3 rounded border border-red-900/50 flex justify-between items-center">
@@ -2056,7 +2084,16 @@
             <div className={`bg-black/80 ${rx('p-4', 'p-6')} rounded-xl border border-red-900 shadow-xl backdrop-blur w-full max-w-md mb-10`}>
               <h3 className={`${rx('text-base', 'text-lg')} text-slate-300 mb-4 font-bold border-b border-slate-800 pb-2 flex justify-between items-center`}>
                 <span>感染菌株 ({gameData?.playerUids?.length} / {gameData?.playerCount})</span>
-                <span className="font-mono text-red-400 bg-red-900/30 px-2 py-1 rounded border border-red-800/50">ID: {roomId}</span>
+                <div className="flex items-center gap-2">
+                  {(lobbyState === 'is_server' || lobbyState === 'is_client') && !isPrivate ? (
+                    <span className="text-[10px] text-emerald-400">🌐 ロビー公開中</span>
+                  ) : isPrivate ? (
+                    <span className="text-[10px] text-slate-400">🔒 非公開</span>
+                  ) : (
+                    <span className="text-[10px] text-yellow-500 animate-pulse">🌐 接続待機中...</span>
+                  )}
+                  <span className="font-mono text-red-400 bg-red-900/30 px-2 py-1 rounded border border-red-800/50">ID: {roomId}</span>
+                </div>
               </h3>
               <ul className="space-y-3">
                 {gameData?.playerUids?.map((uid, i) => (
